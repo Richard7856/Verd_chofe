@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
+import { useTurno } from '@/context/TurnoContext'
 import { supabase } from '@/lib/supabase'
-import { Badge, Button, Card, EmptyState } from '@/components/ui'
-import { Icon } from '@/components/Icons'
-import { clockTime, shortDate, unidadLabel } from '@/lib/format'
-import { getActiveDraft, type Draft } from '@/lib/offline'
+import { Badge, Card, EmptyState, cx } from '@/components/ui'
+import { Icon, type IconName } from '@/components/Icons'
+import { clockTime, km, shortDate, unidadLabel } from '@/lib/format'
 
 interface RegistroReciente {
   id: string
@@ -15,16 +15,60 @@ interface RegistroReciente {
   titulo: string
 }
 
+/** Acceso grande y táctil; cuando está bloqueado explica por qué. */
+function Accion({
+  icon,
+  titulo,
+  detalle,
+  onClick,
+  bloqueado = false,
+  destacado = false,
+}: {
+  icon: IconName
+  titulo: string
+  detalle: string
+  onClick: () => void
+  bloqueado?: boolean
+  destacado?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={bloqueado}
+      className={cx(
+        'flex w-full items-center gap-3.5 rounded-2xl px-5 py-4 text-left transition-colors',
+        bloqueado && 'cursor-not-allowed bg-gray-100 text-gray-400',
+        !bloqueado && destacado && 'bg-brand-500 text-white shadow-sm active:bg-brand-600',
+        !bloqueado && !destacado && 'bg-white text-ink shadow-sm active:bg-gray-50',
+      )}
+    >
+      <span
+        className={cx(
+          'flex h-11 w-11 shrink-0 items-center justify-center rounded-full',
+          bloqueado && 'bg-gray-200 text-gray-400',
+          !bloqueado && destacado && 'bg-white/20 text-white',
+          !bloqueado && !destacado && 'bg-brand-50 text-brand-500',
+        )}
+      >
+        <Icon name={bloqueado ? 'lock' : icon} size={21} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[17px] font-bold">{titulo}</span>
+        <span className={cx('block text-sm', destacado && !bloqueado ? 'opacity-85' : 'text-body-soft')}>
+          {detalle}
+        </span>
+      </span>
+    </button>
+  )
+}
+
 export function Home() {
   const { profile, chofer, unidad } = useAuth()
+  const { abierto, aperturaEnCurso, draft, unidadTurno } = useTurno()
   const navigate = useNavigate()
   const [recientes, setRecientes] = useState<RegistroReciente[]>([])
-  const [borrador, setBorrador] = useState<Draft | null>(null)
   const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    void getActiveDraft('checklist').then((found) => setBorrador(found ?? null))
-  }, [])
 
   useEffect(() => {
     if (!chofer) return
@@ -35,6 +79,7 @@ export function Home() {
           .from('checklists_unidad')
           .select('id, fecha, entrada_el')
           .eq('chofer_id', chofer!.id)
+          .eq('estado', 'completado')
           .order('fecha', { ascending: false })
           .limit(5),
         supabase
@@ -51,7 +96,7 @@ export function Home() {
           tipo: 'checklist' as const,
           fecha: row.fecha,
           hora: row.entrada_el,
-          titulo: 'Check List',
+          titulo: 'Turno completado',
         })),
         ...(cargas.data ?? []).map((row) => ({
           id: row.id,
@@ -69,7 +114,7 @@ export function Home() {
     }
 
     void cargar()
-  }, [chofer])
+  }, [chofer, abierto])
 
   const primerNombre = (chofer?.nombre || profile?.nombre || 'Chofer').split(' ')[0]
 
@@ -80,80 +125,88 @@ export function Home() {
         <p className="text-sm text-body-soft">Operador</p>
       </div>
 
-      {/* --------------------------------------------- unidad asignada */}
-      <Card>
-        <p className="text-sm font-semibold text-brand-600">Unidad asignada</p>
-
-        {unidad ? (
-          <>
-            <p className="mt-1 text-[17px] font-bold text-ink">{unidadLabel(unidad)}</p>
-            <p className="text-sm text-body-soft">
-              {unidad.anio ? `${unidad.anio} · ` : ''}
-              {unidad.estado === 'disponible' ? 'Disponible' : unidad.estado.replace('_', ' ')}
-            </p>
-          </>
-        ) : (
-          <p className="mt-1 text-sm text-body-soft">
-            Todavía no elegiste unidad para este turno.
-          </p>
-        )}
-
-        <Link
-          to="/unidad"
-          className="mt-3 flex items-center justify-end gap-1 text-sm font-semibold text-brand-500"
-        >
-          {unidad ? 'Cambiar unidad' : 'Elegir unidad'}
-          <Icon name="chevronRight" size={16} />
-        </Link>
-      </Card>
-
-      {/* ------------------------------------------------- acción principal */}
-      {borrador ? (
-        <Card className="border border-accent-400/40 bg-orange-50/50">
+      {/* ------------------------------------------------ estado del turno */}
+      {abierto ? (
+        <Card className="border border-brand-200 bg-brand-50/60">
           <div className="flex items-start gap-3">
-            <Icon name="clipboard" size={20} className="mt-0.5 text-accent-600" />
-            <div className="flex-1">
-              <p className="font-semibold text-ink">Tenés un check list sin terminar</p>
-              <p className="text-sm text-body-soft">
-                Quedó en el paso {(borrador.step ?? 0) + 1}. Podés seguir donde lo dejaste.
+            <span className="mt-0.5 flex h-2.5 w-2.5 shrink-0 rounded-full bg-brand-500" />
+            <div className="min-w-0 flex-1">
+              <p className="font-bold text-brand-700">Turno abierto</p>
+              <p className="text-sm text-body">
+                Desde las {clockTime(draft?.entryAt)} · {unidadLabel(unidadTurno ?? unidad)}
               </p>
+              {draft?.odometerStart != null && (
+                <p className="text-xs text-body-soft">Km de entrada: {km(draft.odometerStart)}</p>
+              )}
             </div>
           </div>
-          <Button className="mt-3" onClick={() => navigate('/checklist')}>
-            Continuar check list
-          </Button>
         </Card>
       ) : (
-        <button
-          type="button"
-          onClick={() => navigate('/checklist')}
-          className="w-full rounded-2xl bg-brand-500 px-5 py-4 text-left text-white shadow-sm active:bg-brand-600"
-        >
-          <span className="block text-[17px] font-bold">Iniciar Check List</span>
-          <span className="block text-sm opacity-85">Registra entrada y condiciones</span>
-        </button>
+        <Card>
+          <p className="text-sm font-semibold text-brand-600">Unidad asignada</p>
+          {unidad ? (
+            <>
+              <p className="mt-1 text-[17px] font-bold text-ink">{unidadLabel(unidad)}</p>
+              <p className="text-sm text-body-soft">
+                {unidad.anio ? `${unidad.anio} · ` : ''}
+                {unidad.estado === 'disponible' ? 'Disponible' : unidad.estado.replace('_', ' ')}
+              </p>
+            </>
+          ) : (
+            <p className="mt-1 text-sm text-body-soft">
+              Todavía no elegiste unidad para este turno.
+            </p>
+          )}
+
+          <Link
+            to="/unidad"
+            className="mt-3 flex items-center justify-end gap-1 text-sm font-semibold text-brand-500"
+          >
+            {unidad ? 'Cambiar unidad' : 'Elegir unidad'}
+            <Icon name="chevronRight" size={16} />
+          </Link>
+        </Card>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
-        <Link
-          to="/combustible"
-          className="flex flex-col gap-1.5 rounded-2xl bg-white p-4 shadow-sm active:bg-gray-50"
-        >
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-50 text-brand-500">
-            <Icon name="fuel" size={18} />
-          </span>
-          <span className="text-sm font-semibold text-ink">Carga de combustible</span>
-        </Link>
+      {/* ---------------------------------------------------- acciones */}
+      <div className="space-y-2.5">
+        {!abierto && (
+          <Accion
+            icon="play"
+            destacado
+            titulo={aperturaEnCurso ? 'Continuar registro de entrada' : 'Registro de entrada'}
+            detalle={
+              aperturaEnCurso
+                ? 'Lo dejaste sin terminar'
+                : 'Entrada, condiciones y fotos de la unidad'
+            }
+            onClick={() => navigate('/checklist/apertura')}
+          />
+        )}
 
-        <Link
-          to="/incidencias"
-          className="flex flex-col gap-1.5 rounded-2xl bg-white p-4 shadow-sm active:bg-gray-50"
-        >
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-orange-50 text-accent-600">
-            <Icon name="alert" size={18} />
-          </span>
-          <span className="text-sm font-semibold text-ink">Reportar incidencia</span>
-        </Link>
+        <Accion
+          icon="fuel"
+          titulo="Carga de combustible"
+          detalle={abierto ? 'Ticket, litros y precio' : 'Abrí tu turno para habilitarlo'}
+          bloqueado={!abierto}
+          onClick={() => navigate('/combustible')}
+        />
+
+        <Accion
+          icon="flag"
+          destacado={abierto}
+          titulo="Cierre de turno"
+          detalle={abierto ? 'Salida, resumen y firma' : 'Abrí tu turno para habilitarlo'}
+          bloqueado={!abierto}
+          onClick={() => navigate('/checklist/cierre')}
+        />
+
+        <Accion
+          icon="alert"
+          titulo="Reportar incidencia"
+          detalle="Algo que tu supervisor deba saber"
+          onClick={() => navigate('/incidencias')}
+        />
       </div>
 
       {/* ---------------------------------------------------- recientes */}
@@ -174,7 +227,7 @@ export function Home() {
             <EmptyState
               icon="clipboard"
               title="Todavía no hay registros"
-              description="Cuando completes tu primer check list va a aparecer acá."
+              description="Cuando cierres tu primer turno va a aparecer acá."
             />
           </Card>
         ) : (

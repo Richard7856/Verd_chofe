@@ -49,4 +49,9 @@ export default defineConfig({
     alias: { '@': path.resolve(__dirname, './src') },
   },
   server: { host: true, port: 5173 },
+  // `allowedHosts` abre el server a dominios externos (túneles tipo ngrok).
+  // Vite bloquea hosts desconocidos por defecto como defensa contra DNS
+  // rebinding; acá se habilita a propósito para poder compartir un link de
+  // prueba. No dejarlo así en un despliegue permanente.
+  preview: { host: true, port: 4173, allowedHosts: true },
 })

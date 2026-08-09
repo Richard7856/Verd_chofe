@@ -3,7 +3,7 @@ import { Card, SectionTitle, TextArea, cx } from '@/components/ui'
 import { Icon } from '@/components/Icons'
 import type { CatalogoItem, EstadoItem } from '@/lib/database.types'
 import type { ChecklistDraft } from '@/lib/offline'
-import { WizardFooter } from './ChecklistWizard'
+import { WizardFooter } from './WizardFooter'
 
 const OPTIONS: Array<{ value: EstadoItem; label: string; dot: string; active: string }> = [
   { value: 'ok', label: 'OK', dot: 'bg-brand-500', active: 'border-brand-500 bg-brand-50' },

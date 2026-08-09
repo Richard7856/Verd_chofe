@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
 import { SyncProvider } from '@/context/SyncContext'
+import { TurnoProvider } from '@/context/TurnoContext'
 import { AppShell } from '@/components/AppShell'
 import { Button, Spinner } from '@/components/ui'
 import { Icon } from '@/components/Icons'
@@ -12,7 +13,8 @@ import { Profile } from '@/screens/Profile'
 import { Incidents } from '@/screens/Incidents'
 import { Settings } from '@/screens/Settings'
 import { Documents, ServiceHistory } from '@/screens/Placeholder'
-import { ChecklistWizard } from '@/screens/checklist/ChecklistWizard'
+import { AperturaWizard } from '@/screens/checklist/AperturaWizard'
+import { CierreWizard } from '@/screens/checklist/CierreWizard'
 import { FuelWizard } from '@/screens/fuel/FuelWizard'
 
 function Gate() {
@@ -41,31 +43,35 @@ function Gate() {
 
   return (
     <SyncProvider>
-      <Routes>
-        {/* Los asistentes ocupan la pantalla completa: sin tabs ni drawer,
-            para que el chofer no se salga a mitad del check list. */}
-        <Route path="/checklist" element={<ChecklistWizard />} />
-        <Route path="/combustible" element={<FuelWizard />} />
+      <TurnoProvider>
+        <Routes>
+          {/* Los asistentes ocupan la pantalla completa: sin tabs ni drawer,
+              para que el chofer no se salga a mitad del registro. */}
+          <Route path="/checklist/apertura" element={<AperturaWizard />} />
+          <Route path="/checklist/cierre" element={<CierreWizard />} />
+          <Route path="/combustible" element={<FuelWizard />} />
+          <Route path="/checklist" element={<Navigate to="/checklist/apertura" replace />} />
 
-        <Route
-          path="*"
-          element={
-            <AppShell>
-              <Routes>
-                <Route path="/" element={<Home />} />
-                <Route path="/registros" element={<Records />} />
-                <Route path="/unidad" element={<Unit />} />
-                <Route path="/perfil" element={<Profile />} />
-                <Route path="/incidencias" element={<Incidents />} />
-                <Route path="/documentos" element={<Documents />} />
-                <Route path="/servicios" element={<ServiceHistory />} />
-                <Route path="/configuracion" element={<Settings />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </AppShell>
-          }
-        />
-      </Routes>
+          <Route
+            path="*"
+            element={
+              <AppShell>
+                <Routes>
+                  <Route path="/" element={<Home />} />
+                  <Route path="/registros" element={<Records />} />
+                  <Route path="/unidad" element={<Unit />} />
+                  <Route path="/perfil" element={<Profile />} />
+                  <Route path="/incidencias" element={<Incidents />} />
+                  <Route path="/documentos" element={<Documents />} />
+                  <Route path="/servicios" element={<ServiceHistory />} />
+                  <Route path="/configuracion" element={<Settings />} />
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </AppShell>
+            }
+          />
+        </Routes>
+      </TurnoProvider>
     </SyncProvider>
   )
 }

@@ -15,7 +15,7 @@ function Row({ label, value }: { label: string; value: string }) {
 
 export function Profile() {
   const { profile, chofer, empresa, unidad, signOut } = useAuth()
-  const { online, pending, syncing, sync } = useSync()
+  const { online, pending, syncing } = useSync()
 
   const licenciaVencida =
     chofer?.licencia_vence_el != null && new Date(chofer.licencia_vence_el) < new Date()
@@ -64,13 +64,15 @@ export function Profile() {
         <p className="mb-1 font-bold text-brand-600">Sincronización</p>
         <div className="divide-y divide-gray-100">
           <Row label="Conexión" value={online ? 'En línea' : 'Sin conexión'} />
-          <Row label="Pendientes" value={`${pending}`} />
+          <Row
+            label="Pendientes"
+            value={pending === 0 ? 'Todo enviado' : `${pending}${syncing ? ' · enviando…' : ''}`}
+          />
         </div>
-
-        {pending > 0 && online && (
-          <Button variant="secondary" className="mt-3" loading={syncing} onClick={() => void sync()}>
-            Sincronizar ahora
-          </Button>
+        {pending > 0 && (
+          <p className="mt-2 text-xs text-body-soft">
+            Se envían solos en cuanto haya señal. No hace falta hacer nada.
+          </p>
         )}
       </Card>
 

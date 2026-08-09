@@ -49,6 +49,9 @@ const paths = {
   history: 'M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l4 2',
   edit: 'M11 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z',
   plus: 'M12 5v14M5 12h14',
+  lock: 'M5 11h14a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1zM8 11V7a4 4 0 1 1 8 0v4',
+  play: 'M6 4l14 8-14 8z',
+  flag: 'M4 21V4h9l1 2h6v9h-7l-1-2H4',
 } as const
 
 export type IconName = keyof typeof paths

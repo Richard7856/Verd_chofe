@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Field, Input, SectionTitle, Select } from '@/components/ui'
+import { NumberField } from '@/components/NumberField'
 import { supabase } from '@/lib/supabase'
-import { clockTime, parseNumber, shortDate } from '@/lib/format'
+import { clockTime, shortDate } from '@/lib/format'
 import type { ChecklistDraft } from '@/lib/offline'
 import type { Bodega } from '@/lib/database.types'
-import { WizardFooter } from './ChecklistWizard'
+import { WizardFooter } from './WizardFooter'
 
 export function StepEntry({
   draft,
@@ -46,15 +47,13 @@ export function StepEntry({
         </Field>
 
         <Field label="Kilometraje inicial" error={odometerError}>
-          <Input
+          <NumberField
             icon="gauge"
             suffix="km"
-            type="text"
-            inputMode="numeric"
             placeholder="45230"
             invalid={Boolean(odometerError)}
-            value={draft.odometerStart ?? ''}
-            onChange={(event) => patch({ odometerStart: parseNumber(event.target.value) })}
+            value={draft.odometerStart}
+            onChange={(value) => patch({ odometerStart: value })}
           />
         </Field>
 

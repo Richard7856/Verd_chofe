@@ -3,7 +3,7 @@ import { SectionTitle } from '@/components/ui'
 import { SignatureField } from '@/components/SignatureField'
 import { Icon } from '@/components/Icons'
 import type { ChecklistDraft } from '@/lib/offline'
-import { WizardFooter } from './ChecklistWizard'
+import { WizardFooter } from './WizardFooter'
 
 export function StepSignature({
   draft,
@@ -46,7 +46,7 @@ export function StepSignature({
 
       <WizardFooter
         onNext={onSubmit}
-        label="Enviar check list"
+        label="Cerrar turno"
         variant="success"
         loading={submitting}
         disabled={!draft.signature}

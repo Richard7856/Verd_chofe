@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Button, Card } from '@/components/ui'
+import { Card } from '@/components/ui'
 import { Icon } from '@/components/Icons'
 import { useSync } from '@/context/SyncContext'
+import { useTurno } from '@/context/TurnoContext'
 import { getOutbox } from '@/lib/offline'
 import { isNative } from '@/lib/capture'
 
@@ -15,11 +16,12 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 export function Settings() {
-  const { online, pending, syncing, sync, refreshPending } = useSync()
-  const [failed, setFailed] = useState(0)
+  const { online, pending, syncing } = useSync()
+  const { abierto } = useTurno()
+  const [conError, setConError] = useState(0)
 
   useEffect(() => {
-    void getOutbox().then((entries) => setFailed(entries.filter((e) => e.status === 'failed').length))
+    void getOutbox().then((entries) => setConError(entries.filter((e) => e.status === 'failed').length))
   }, [pending])
 
   return (
@@ -29,31 +31,31 @@ export function Settings() {
       <Card>
         <p className="mb-1 font-bold text-brand-600">Estado</p>
         <div className="divide-y divide-gray-100">
+          <Row label="Turno" value={abierto ? 'Abierto' : 'Cerrado'} />
           <Row label="Conexión" value={online ? 'En línea' : 'Sin conexión'} />
-          <Row label="Registros pendientes" value={`${pending}`} />
-          <Row label="Con error" value={`${failed}`} />
+          <Row
+            label="Registros por enviar"
+            value={pending === 0 ? 'Ninguno' : `${pending}${syncing ? ' · enviando…' : ''}`}
+          />
           <Row label="Plataforma" value={isNative ? 'App Android' : 'Navegador'} />
           <Row label="Versión" value="1.0.0" />
         </div>
-
-        <Button
-          variant="secondary"
-          className="mt-3"
-          loading={syncing}
-          disabled={!online || pending === 0}
-          onClick={() => void sync()}
-        >
-          <Icon name="refresh" size={17} />
-          Sincronizar ahora
-        </Button>
       </Card>
 
-      {failed > 0 && (
+      <Card>
+        <p className="mb-1 font-bold text-brand-600">Sincronización</p>
+        <p className="text-sm text-body-soft">
+          Es automática: los registros se envían solos al abrir la app, al recuperar la señal y
+          cada tanto mientras quede algo pendiente. No hay nada que apretar.
+        </p>
+      </Card>
+
+      {conError > 0 && (
         <div className="flex gap-2.5 rounded-xl bg-orange-50 p-3.5 text-sm">
           <Icon name="alert" size={18} className="mt-0.5 shrink-0 text-accent-600" />
           <p className="text-body">
-            Hay {failed} registro{failed === 1 ? '' : 's'} que no se pudo enviar. Se reintenta solo
-            cada vez que vuelve la señal. Si sigue fallando, avisale a tu supervisor —{' '}
+            Hay {conError} registro{conError === 1 ? '' : 's'} que no se pudo enviar. Se sigue
+            reintentando solo. Si después de un rato continúa, avisale a tu supervisor —{' '}
             <strong>no borres la app</strong>, perderías esos registros.
           </p>
         </div>
@@ -62,12 +64,9 @@ export function Settings() {
       <Card>
         <p className="mb-1 font-bold text-brand-600">Almacenamiento</p>
         <p className="text-sm text-body-soft">
-          Las fotos y los check lists sin enviar viven en este teléfono hasta que se
-          sincronizan. Después se borran solos.
+          Las fotos y los registros sin enviar viven en este teléfono hasta que se sincronizan.
+          Después se borran solos para no ocupar espacio.
         </p>
-        <Button variant="ghost" className="mt-2" onClick={() => void refreshPending()}>
-          Actualizar estado
-        </Button>
       </Card>
     </div>
   )

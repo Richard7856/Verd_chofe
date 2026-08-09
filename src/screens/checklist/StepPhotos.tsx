@@ -4,7 +4,7 @@ import { SectionTitle, cx } from '@/components/ui'
 import { Icon } from '@/components/Icons'
 import type { CatalogoFoto } from '@/lib/database.types'
 import type { StoredPhoto } from '@/lib/offline'
-import { WizardFooter } from './ChecklistWizard'
+import { WizardFooter } from './WizardFooter'
 
 export function StepPhotos({
   slots,
@@ -12,12 +12,16 @@ export function StepPhotos({
   onCapture,
   onClear,
   onNext,
+  labelFinal = 'Siguiente',
+  enviando = false,
 }: {
   slots: CatalogoFoto[]
   photoByCode: Map<string, StoredPhoto>
   onCapture: (slotCode: string, label: string, blob: Blob) => Promise<void>
   onClear: (slotCode: string) => Promise<void>
   onNext: () => void
+  labelFinal?: string
+  enviando?: boolean
 }) {
   const [showErrors, setShowErrors] = useState(false)
 
@@ -59,11 +63,18 @@ export function StepPhotos({
       </div>
 
       <WizardFooter
+        label={labelFinal}
+        loading={enviando}
+        variant={labelFinal === 'Siguiente' ? 'primary' : 'success'}
         onNext={() => {
           setShowErrors(true)
           if (missing.length === 0) onNext()
         }}
-        hint={missing.length > 0 ? `${missing.length} foto${missing.length === 1 ? '' : 's'} obligatoria${missing.length === 1 ? '' : 's'} pendiente${missing.length === 1 ? '' : 's'}` : undefined}
+        hint={
+          missing.length > 0
+            ? `${missing.length} foto${missing.length === 1 ? '' : 's'} obligatoria${missing.length === 1 ? '' : 's'} pendiente${missing.length === 1 ? '' : 's'}`
+            : undefined
+        }
       />
     </>
   )

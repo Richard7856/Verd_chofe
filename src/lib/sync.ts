@@ -1,11 +1,13 @@
 import { supabase, BUCKET_EVIDENCIAS } from './supabase'
 import {
   deleteDraft,
+  deletePhotosOf,
   dequeue,
   getDraft,
   getOutbox,
   getPhotos,
   markOutbox,
+  saveDraft,
   type ChecklistDraft,
   type FuelDraft,
 } from './offline'
@@ -24,40 +26,42 @@ export interface SyncContext {
  *
  * Así, si se corta la señal a mitad del envío, reintentar no duplica nada.
  *
- * El orden importa: el check list se inserta como `en_progreso`, después van
- * ítems y fotos, y recién al final pasa a `completado`. Las políticas RLS sólo
- * dejan escribir ítems y fotos mientras el check list está en progreso.
+ * La apertura se procesa siempre antes que el cierre del mismo check list:
+ * el cierre sólo actualiza una fila que la apertura ya tiene que haber creado.
  */
 export async function flushOutbox(ctx: SyncContext): Promise<{ synced: number; failed: number }> {
   if (!navigator.onLine) return { synced: 0, failed: 0 }
 
-  const entries = await getOutbox()
+  const orden = { checklist_apertura: 0, fuel: 1, checklist_cierre: 2 }
+  const entries = (await getOutbox()).sort((a, b) => orden[a.kind] - orden[b.kind])
+
   let synced = 0
   let failed = 0
 
   for (const entry of entries) {
     if (entry.status === 'syncing') continue
 
-    await markOutbox(entry.clientUuid, { status: 'syncing' })
+    await markOutbox(entry.id, { status: 'syncing' })
     try {
       const draft = await getDraft(entry.clientUuid)
       if (!draft) {
-        await dequeue(entry.clientUuid)
+        await dequeue(entry.id)
         continue
       }
 
-      if (draft.kind === 'checklist') {
-        await pushChecklist(draft, ctx)
-      } else {
+      if (entry.kind === 'checklist_apertura' && draft.kind === 'checklist') {
+        await pushApertura(draft, ctx)
+      } else if (entry.kind === 'checklist_cierre' && draft.kind === 'checklist') {
+        await pushCierre(draft, ctx)
+      } else if (entry.kind === 'fuel' && draft.kind === 'fuel') {
         await pushCarga(draft, ctx)
       }
 
-      await deleteDraft(entry.clientUuid)
-      await dequeue(entry.clientUuid)
+      await dequeue(entry.id)
       synced++
     } catch (error) {
       failed++
-      await markOutbox(entry.clientUuid, {
+      await markOutbox(entry.id, {
         status: 'failed',
         attempts: entry.attempts + 1,
         lastError: error instanceof Error ? error.message : String(error),
@@ -68,7 +72,11 @@ export async function flushOutbox(ctx: SyncContext): Promise<{ synced: number; f
   return { synced, failed }
 }
 
-async function pushChecklist(draft: ChecklistDraft, ctx: SyncContext) {
+/**
+ * Apertura: crea el check list en `en_progreso` con entrada, condiciones y
+ * fotos. El borrador NO se borra — el cierre lo necesita para el resumen.
+ */
+async function pushApertura(draft: ChecklistDraft, ctx: SyncContext) {
   if (!draft.vehicleId) throw new Error('El check list no tiene unidad asignada')
 
   const { data: checklist, error } = await supabase
@@ -85,12 +93,6 @@ async function pushChecklist(draft: ChecklistDraft, ctx: SyncContext) {
         km_inicial: draft.odometerStart,
         entrada_lat: draft.entryLat,
         entrada_lng: draft.entryLng,
-        salida_el: draft.exitAt,
-        km_final: draft.odometerEnd,
-        salida_lat: draft.exitLat,
-        salida_lng: draft.exitLng,
-        ruta_turno: draft.shiftLabel,
-        observaciones: draft.observations,
         cliente_uuid: draft.clientUuid,
       },
       { onConflict: 'empresa_id,cliente_uuid' },
@@ -101,7 +103,6 @@ async function pushChecklist(draft: ChecklistDraft, ctx: SyncContext) {
   if (error) throw error
   const checklistId = checklist.id
 
-  // --- ítems de condiciones
   const items = Object.entries(draft.items).map(([codigo, valor], index) => ({
     checklist_id: checklistId,
     codigo,
@@ -118,7 +119,6 @@ async function pushChecklist(draft: ChecklistDraft, ctx: SyncContext) {
     if (itemsError) throw itemsError
   }
 
-  // --- fotos
   const fotos = await getPhotos(draft.clientUuid)
   for (const foto of fotos) {
     const ruta = `${ctx.empresaId}/${checklistId}/${foto.slotCode}.jpg`
@@ -143,7 +143,32 @@ async function pushChecklist(draft: ChecklistDraft, ctx: SyncContext) {
     if (rowError) throw rowError
   }
 
-  // --- firma
+  // Ya están en Storage: liberan espacio en el teléfono.
+  await deletePhotosOf(draft.clientUuid)
+
+  await saveDraft({ ...draft, remoteId: checklistId, aperturaEnviada: true })
+}
+
+/**
+ * Cierre: completa salida y firma, y pasa el check list a `completado`.
+ * Recién acá se borra el borrador.
+ */
+async function pushCierre(draft: ChecklistDraft, ctx: SyncContext) {
+  // Si el cierre llegó antes que la apertura (cola desordenada por un fallo
+  // previo), se resuelve el id por cliente_uuid en vez de fallar.
+  let checklistId = draft.remoteId
+  if (!checklistId) {
+    const { data } = await supabase
+      .from('checklists_unidad')
+      .select('id')
+      .eq('empresa_id', ctx.empresaId)
+      .eq('cliente_uuid', draft.clientUuid)
+      .maybeSingle()
+
+    if (!data) throw new Error('La apertura de este check list todavía no se sincronizó')
+    checklistId = data.id
+  }
+
   let firmaRuta: string | null = null
   if (draft.signature) {
     firmaRuta = `${ctx.empresaId}/${checklistId}/firma.png`
@@ -153,18 +178,25 @@ async function pushChecklist(draft: ChecklistDraft, ctx: SyncContext) {
     if (firmaError) throw firmaError
   }
 
-  // --- cierre
-  const { error: cierreError } = await supabase
+  const { error } = await supabase
     .from('checklists_unidad')
     .update({
       estado: 'completado',
+      salida_el: draft.exitAt,
+      km_final: draft.odometerEnd,
+      salida_lat: draft.exitLat,
+      salida_lng: draft.exitLng,
+      ruta_turno: draft.shiftLabel,
+      observaciones: draft.observations,
       firma_ruta: firmaRuta,
       firmado_el: draft.signedAt,
       completado_el: new Date().toISOString(),
     })
     .eq('id', checklistId)
 
-  if (cierreError) throw cierreError
+  if (error) throw error
+
+  await deleteDraft(draft.clientUuid)
 }
 
 async function pushCarga(draft: FuelDraft, ctx: SyncContext) {
@@ -188,6 +220,7 @@ async function pushCarga(draft: FuelDraft, ctx: SyncContext) {
       empresa_id: ctx.empresaId,
       chofer_id: ctx.choferId,
       unidad_id: draft.vehicleId,
+      checklist_id: draft.checklistId,
       fecha: draft.loadedOn,
       estacion: draft.stationName,
       litros: draft.liters,
@@ -204,4 +237,6 @@ async function pushCarga(draft: FuelDraft, ctx: SyncContext) {
   )
 
   if (error) throw error
+
+  await deleteDraft(draft.clientUuid)
 }

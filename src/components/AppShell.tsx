@@ -10,8 +10,9 @@ const APP_VERSION = '1.0.0'
 const DRAWER_LINKS: Array<{ to: string; label: string; icon: IconName; badge?: string }> = [
   { to: '/', label: 'Inicio', icon: 'home' },
   { to: '/registros', label: 'Mis Registros', icon: 'clipboard' },
-  { to: '/checklist', label: 'Check List de Unidad', icon: 'car' },
-  { to: '/combustible', label: 'Carga de Combustible', icon: 'fuel', badge: 'NUEVO' },
+  { to: '/checklist/apertura', label: 'Registro de Entrada', icon: 'play' },
+  { to: '/checklist/cierre', label: 'Cierre de Turno', icon: 'flag' },
+  { to: '/combustible', label: 'Carga de Combustible', icon: 'fuel' },
   { to: '/documentos', label: 'Documentos', icon: 'file' },
   { to: '/servicios', label: 'Historial de Servicios', icon: 'wrench' },
   { to: '/incidencias', label: 'Incidencias', icon: 'alert' },
@@ -26,8 +27,12 @@ const TABS: Array<{ to: string; label: string; icon: IconName }> = [
   { to: '/perfil', label: 'Perfil', icon: 'user' },
 ]
 
+/**
+ * Aviso informativo, sin botón: la sincronización es automática y el chofer
+ * no tiene por qué administrar una cola. Sólo se le dice qué está pasando.
+ */
 export function OfflineBanner() {
-  const { online, pending, syncing, sync } = useSync()
+  const { online, pending, syncing } = useSync()
 
   if (online && pending === 0) return null
 
@@ -38,19 +43,18 @@ export function OfflineBanner() {
         online ? 'bg-brand-50 text-brand-700' : 'bg-orange-50 text-accent-600',
       )}
     >
-      <Icon name={online ? 'refresh' : 'cloudOff'} size={16} className={syncing ? 'animate-spin' : ''} />
+      <Icon
+        name={online ? 'refresh' : 'cloudOff'}
+        size={16}
+        className={syncing ? 'animate-spin' : ''}
+      />
       <span className="flex-1">
         {!online
-          ? `Sin conexión${pending > 0 ? ` · ${pending} registro${pending === 1 ? '' : 's'} en espera` : ''}`
+          ? `Sin conexión${pending > 0 ? ` · ${pending} registro${pending === 1 ? '' : 's'} guardado${pending === 1 ? '' : 's'} en el teléfono` : ''}`
           : syncing
-            ? 'Sincronizando…'
-            : `${pending} registro${pending === 1 ? '' : 's'} por sincronizar`}
+            ? 'Enviando…'
+            : `${pending} registro${pending === 1 ? '' : 's'} por enviar`}
       </span>
-      {online && !syncing && pending > 0 && (
-        <button type="button" onClick={() => void sync()} className="font-semibold underline">
-          Reintentar
-        </button>
-      )}
     </div>
   )
 }

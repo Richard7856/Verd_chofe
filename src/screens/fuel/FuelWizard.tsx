@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router-dom'
 import { WizardHeader } from '@/components/AppShell'
 import { Stepper } from '@/components/Stepper'
 import { PhotoSlot } from '@/components/PhotoSlot'
 import { BlobImage } from '@/components/BlobImage'
+import { NumberField } from '@/components/NumberField'
 import { Button, Card, Field, Input, SectionTitle, Spinner } from '@/components/ui'
 import { Icon } from '@/components/Icons'
 import { useAuth } from '@/context/AuthContext'
+import { useTurno } from '@/context/TurnoContext'
 import { useSync } from '@/context/SyncContext'
 import { supabase } from '@/lib/supabase'
 import { currentCoords } from '@/lib/capture'
-import { liters as fmtLiters, money, parseNumber, shortDate, todayISO, unidadLabel } from '@/lib/format'
+import { liters as fmtLiters, money, shortDate, todayISO, unidadLabel } from '@/lib/format'
 import {
   deletePhoto,
   enqueue,
@@ -25,12 +27,13 @@ import {
 
 const STEPS = ['Ticket', 'Datos', 'Confirmar']
 
-function emptyDraft(vehicleId: string | null): FuelDraft {
+function emptyDraft(vehicleId: string | null, checklistId: string | null): FuelDraft {
   return {
     clientUuid: newClientUuid(),
     kind: 'fuel',
     step: 0,
     vehicleId,
+    checklistId,
     loadedOn: todayISO(),
     stationName: null,
     liters: null,
@@ -48,6 +51,7 @@ export function FuelWizard() {
   const navigate = useNavigate()
   const { unidad, chofer } = useAuth()
   const { sync, refreshPending, online, pending } = useSync()
+  const { abierto, cargando: turnoCargando, checklistId } = useTurno()
 
   const [started, setStarted] = useState(false)
   const [draft, setDraft] = useState<FuelDraft | null>(null)
@@ -89,7 +93,7 @@ export function FuelWizard() {
       const photos = await getPhotos(existing.clientUuid)
       setTicket(photos.find((p) => p.slotCode === 'ticket') ?? null)
     } else {
-      const fresh = emptyDraft(unidad?.id ?? null)
+      const fresh = emptyDraft(unidad?.id ?? null, checklistId)
       const coords = await currentCoords(5000)
       fresh.lat = coords.lat
       fresh.lng = coords.lng
@@ -131,6 +135,11 @@ export function FuelWizard() {
       setSubmitting(false)
     }
   }
+
+  // La carga de combustible se habilita recién con el turno abierto: así el
+  // gasto queda siempre ligado a un turno y a un kilometraje conocidos.
+  if (turnoCargando) return <Spinner label="Cargando tu turno…" />
+  if (!abierto && !done) return <Navigate to="/" replace />
 
   // ------------------------------------------------------------ portada
   if (!started) {
@@ -291,26 +300,24 @@ export function FuelWizard() {
             </datalist>
 
             <Field label="Litros cargados">
-              <Input
+              <NumberField
+                decimales
                 icon="droplet"
                 suffix="Lts"
-                type="text"
-                inputMode="decimal"
                 placeholder="40.00"
-                value={draft.liters ?? ''}
-                onChange={(event) => patch({ liters: parseNumber(event.target.value) })}
+                value={draft.liters}
+                onChange={(value) => patch({ liters: value })}
               />
             </Field>
 
             <Field label="Precio por litro">
-              <Input
+              <NumberField
+                decimales
                 icon="fuel"
                 suffix="$ / L"
-                type="text"
-                inputMode="decimal"
                 placeholder="6.890"
-                value={draft.pricePerLiter ?? ''}
-                onChange={(event) => patch({ pricePerLiter: parseNumber(event.target.value) })}
+                value={draft.pricePerLiter}
+                onChange={(value) => patch({ pricePerLiter: value })}
               />
             </Field>
 
@@ -320,14 +327,12 @@ export function FuelWizard() {
             </Field>
 
             <Field label="Kilometraje (opcional)">
-              <Input
+              <NumberField
                 icon="gauge"
                 suffix="km"
-                type="text"
-                inputMode="numeric"
                 placeholder="45230"
-                value={draft.odometer ?? ''}
-                onChange={(event) => patch({ odometer: parseNumber(event.target.value) })}
+                value={draft.odometer}
+                onChange={(value) => patch({ odometer: value })}
               />
             </Field>
           </div>

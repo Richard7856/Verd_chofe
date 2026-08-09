@@ -15,12 +15,26 @@ function Row({ label, value }: { label: string; value: string }) {
   )
 }
 
-export function StepDone({ draft, photoCount }: { draft: ChecklistDraft; photoCount: number }) {
+/**
+ * Pantalla final de apertura y de cierre. La diferencia importa: al abrir, lo
+ * que el chofer necesita saber es qué se le desbloqueó; al cerrar, que su
+ * turno quedó registrado.
+ */
+export function StepDone({
+  draft,
+  fotos,
+  modo,
+}: {
+  draft: ChecklistDraft
+  fotos: number
+  modo: 'apertura' | 'cierre'
+}) {
   const navigate = useNavigate()
   const { unidad } = useAuth()
   const { online, pending } = useSync()
 
-  const queued = !online || pending > 0
+  const enCola = !online || pending > 0
+  const esApertura = modo === 'apertura'
 
   return (
     <div className="safe-top flex min-h-dvh flex-col justify-between p-4">
@@ -29,38 +43,51 @@ export function StepDone({ draft, photoCount }: { draft: ChecklistDraft; photoCo
           <span className="flex h-20 w-20 items-center justify-center rounded-full bg-brand-500 text-white">
             <Icon name="check" size={40} strokeWidth={2.5} />
           </span>
-          <h1 className="text-[22px] font-extrabold text-ink">¡Registro Completado!</h1>
+          <h1 className="text-[22px] font-extrabold text-ink">
+            {esApertura ? '¡Turno abierto!' : '¡Registro completado!'}
+          </h1>
           <p className="max-w-xs text-sm text-body-soft">
-            {queued
-              ? 'Se guardó en tu teléfono y se va a enviar solo en cuanto tengas señal.'
-              : 'Tu check list se guardó exitosamente.'}
+            {enCola
+              ? 'Se guardó en tu teléfono y se envía solo en cuanto tengas señal.'
+              : esApertura
+                ? 'Tu check list de entrada quedó registrado.'
+                : 'Tu turno se cerró correctamente.'}
           </p>
         </div>
 
-        {queued && (
-          <div className="flex items-center gap-2 rounded-xl bg-orange-50 px-3.5 py-3 text-sm text-accent-600">
-            <Icon name="cloudOff" size={17} className="shrink-0" />
-            Pendiente de sincronizar. No cierres sesión hasta que se envíe.
-          </div>
+        {esApertura && (
+          <Card className="bg-brand-50/60">
+            <p className="mb-2 font-bold text-brand-700">Ya podés</p>
+            <ul className="space-y-2">
+              <li className="flex items-center gap-2.5 text-sm text-body">
+                <Icon name="fuel" size={17} className="shrink-0 text-brand-600" />
+                Registrar cargas de combustible
+              </li>
+              <li className="flex items-center gap-2.5 text-sm text-body">
+                <Icon name="clipboard" size={17} className="shrink-0 text-brand-600" />
+                Hacer el cierre cuando termines el turno
+              </li>
+            </ul>
+          </Card>
         )}
 
         <Card>
-          <p className="mb-1 font-bold text-brand-600">Detalle del registro</p>
+          <p className="mb-1 font-bold text-brand-600">Detalle</p>
           <div className="divide-y divide-gray-100">
             <Row label="Entrada" value={clockTime(draft.entryAt)} />
-            <Row label="Salida" value={clockTime(draft.exitAt)} />
             <Row label="Km inicial" value={km(draft.odometerStart)} />
-            <Row label="Km final" value={km(draft.odometerEnd)} />
-            <Row label="Fotos" value={`${photoCount}`} />
+            {!esApertura && <Row label="Salida" value={clockTime(draft.exitAt)} />}
+            {!esApertura && <Row label="Km final" value={km(draft.odometerEnd)} />}
+            {esApertura && <Row label="Fotos" value={`${fotos}`} />}
             <Row label="Unidad" value={unidadLabel(unidad)} />
           </div>
         </Card>
       </div>
 
       <div className="safe-bottom space-y-2 pt-6">
-        <Button onClick={() => navigate('/registros')}>Ver mis registros</Button>
-        <Button variant="secondary" onClick={() => navigate('/')}>
-          Ir al inicio
+        <Button onClick={() => navigate('/')}>Ir al inicio</Button>
+        <Button variant="secondary" onClick={() => navigate('/registros')}>
+          Ver mis registros
         </Button>
       </div>
     </div>

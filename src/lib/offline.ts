@@ -6,15 +6,29 @@ import type { EstadoItem } from './database.types'
  * el chofer llena el check list en el patio (donde casi nunca hay datos)
  * y la sincronización ocurre cuando vuelve la conexión.
  *
- * Las fotos se guardan como Blob acá y sólo se suben al confirmar el envío.
+ * El check list se parte en dos momentos del turno:
+ *
+ *   apertura → entrada, condiciones y fotos. Se hace temprano y deja el
+ *              turno abierto (`estado = 'en_progreso'` en la base).
+ *   cierre   → salida, resumen y firma. Se hace al terminar y lo pasa a
+ *              `completado`.
+ *
+ * Entre una y otra el borrador sigue vivo acá, porque el cierre necesita los
+ * datos de la apertura para el resumen.
  */
 
 export type DraftKind = 'checklist' | 'fuel'
+export type ChecklistFase = 'apertura' | 'cierre'
 
 export interface ChecklistDraft {
   clientUuid: string
   kind: 'checklist'
+  fase: ChecklistFase
   step: number
+  /** id en `checklists_unidad`, disponible recién cuando la apertura sincroniza */
+  remoteId: string | null
+  /** true cuando la apertura ya subió: el cierre no vuelve a mandar fotos */
+  aperturaEnviada: boolean
   vehicleId: string | null
   depotId: string | null
   checklistDate: string
@@ -44,6 +58,8 @@ export interface FuelDraft {
   kind: 'fuel'
   step: number
   vehicleId: string | null
+  /** turno al que se carga el gasto, si hay uno abierto */
+  checklistId: string | null
   loadedOn: string
   stationName: string | null
   liters: number | null
@@ -71,10 +87,13 @@ export interface StoredPhoto {
 }
 
 export type OutboxStatus = 'pending' | 'syncing' | 'failed'
+export type OutboxKind = 'checklist_apertura' | 'checklist_cierre' | 'fuel'
 
 export interface OutboxEntry {
+  /** `${clientUuid}:${kind}` — apertura y cierre conviven en la cola */
+  id: string
   clientUuid: string
-  kind: DraftKind
+  kind: OutboxKind
   status: OutboxStatus
   attempts: number
   lastError: string | null
@@ -92,14 +111,23 @@ let dbPromise: Promise<IDBPDatabase<ChoferesDB>> | null = null
 
 function db() {
   if (!dbPromise) {
-    dbPromise = openDB<ChoferesDB>('verdfrut-choferes', 1, {
-      upgrade(database) {
+    dbPromise = openDB<ChoferesDB>('verdfrut-choferes', 2, {
+      upgrade(database, oldVersion) {
+        // v1 guardaba el check list como un solo envío. Los borradores viejos
+        // no tienen `fase` ni `remoteId`, así que se descartan en vez de
+        // migrarlos: son de la etapa de pruebas y no hay datos que perder.
+        if (oldVersion > 0) {
+          for (const name of ['drafts', 'photos', 'outbox'] as const) {
+            if (database.objectStoreNames.contains(name)) database.deleteObjectStore(name)
+          }
+        }
+
         database.createObjectStore('drafts', { keyPath: 'clientUuid' })
 
         const photos = database.createObjectStore('photos', { keyPath: 'key' })
         photos.createIndex('byDraft', 'clientUuid')
 
-        const outbox = database.createObjectStore('outbox', { keyPath: 'clientUuid' })
+        const outbox = database.createObjectStore('outbox', { keyPath: 'id' })
         outbox.createIndex('byStatus', 'status')
       },
     })
@@ -120,9 +148,13 @@ export async function getDraft(clientUuid: string) {
 
 export async function getActiveDraft(kind: DraftKind): Promise<Draft | undefined> {
   const all = await (await db()).getAll('drafts')
-  return all
-    .filter((d) => d.kind === kind)
-    .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+  return all.filter((d) => d.kind === kind).sort((a, b) => b.updatedAt - a.updatedAt)[0]
+}
+
+/** El check list en curso, sin importar en qué fase esté. */
+export async function getChecklistDraft(): Promise<ChecklistDraft | undefined> {
+  const found = await getActiveDraft('checklist')
+  return found?.kind === 'checklist' ? found : undefined
 }
 
 export async function deleteDraft(clientUuid: string) {
@@ -151,10 +183,24 @@ export async function deletePhoto(key: string) {
   await (await db()).delete('photos', key)
 }
 
+/** Tras subir la apertura, las fotos ya viven en Storage: liberan espacio. */
+export async function deletePhotosOf(clientUuid: string) {
+  const d = await db()
+  const tx = d.transaction('photos', 'readwrite')
+  const index = tx.store.index('byDraft')
+  for await (const cursor of index.iterate(clientUuid)) {
+    await cursor.delete()
+  }
+  await tx.done
+}
+
 // ------------------------------------------------------------- outbox
 
-export async function enqueue(clientUuid: string, kind: DraftKind) {
+const outboxId = (clientUuid: string, kind: OutboxKind) => `${clientUuid}:${kind}`
+
+export async function enqueue(clientUuid: string, kind: OutboxKind) {
   await (await db()).put('outbox', {
+    id: outboxId(clientUuid, kind),
     clientUuid,
     kind,
     status: 'pending',
@@ -174,15 +220,15 @@ export async function getPendingCount() {
   return entries.filter((e) => e.status !== 'syncing').length
 }
 
-export async function markOutbox(clientUuid: string, patch: Partial<OutboxEntry>) {
+export async function markOutbox(id: string, patch: Partial<OutboxEntry>) {
   const d = await db()
-  const existing = await d.get('outbox', clientUuid)
+  const existing = await d.get('outbox', id)
   if (!existing) return
   await d.put('outbox', { ...existing, ...patch, lastAttemptAt: Date.now() })
 }
 
-export async function dequeue(clientUuid: string) {
-  await (await db()).delete('outbox', clientUuid)
+export async function dequeue(id: string) {
+  await (await db()).delete('outbox', id)
 }
 
 // ------------------------------------------------------------- utils

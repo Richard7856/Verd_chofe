@@ -24,14 +24,6 @@ export function clockTime(iso: string | null | undefined) {
 
 export const todayISO = () => new Date().toISOString().slice(0, 10)
 
-/** Convierte "45,230" o "45 230" a 45230; devuelve null si no es un número. */
-export function parseNumber(input: string): number | null {
-  const cleaned = input.replace(/[^\d.-]/g, '')
-  if (cleaned === '' || cleaned === '-') return null
-  const value = Number(cleaned)
-  return Number.isFinite(value) ? value : null
-}
-
 export function unidadLabel(
   unidad: { marca: string | null; modelo: string | null; placa: string; alias: string | null } | null,
 ) {

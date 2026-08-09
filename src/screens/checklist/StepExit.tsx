@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Field, Input, SectionTitle, TextArea } from '@/components/ui'
-import { clockTime, km, parseNumber } from '@/lib/format'
+import { NumberField } from '@/components/NumberField'
+import { clockTime, km } from '@/lib/format'
 import { currentCoords } from '@/lib/capture'
 import type { ChecklistDraft } from '@/lib/offline'
-import { WizardFooter } from './ChecklistWizard'
+import { WizardFooter } from './WizardFooter'
 
 export function StepExit({
   draft,
@@ -54,15 +55,13 @@ export function StepExit({
           error={odometerError}
           hint={distance != null ? `Recorrido del turno: ${km(distance)}` : undefined}
         >
-          <Input
+          <NumberField
             icon="gauge"
             suffix="km"
-            type="text"
-            inputMode="numeric"
             placeholder="45678"
             invalid={Boolean(odometerError)}
-            value={end ?? ''}
-            onChange={(event) => patch({ odometerEnd: parseNumber(event.target.value) })}
+            value={end}
+            onChange={(value) => patch({ odometerEnd: value })}
           />
         </Field>
 
