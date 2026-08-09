@@ -1,0 +1,72 @@
+@import 'tailwindcss';
+
+/* Paleta VerdFrut — muestreada del sitio real (Web_verd/NOTAS.md).
+   El mockup del cliente venía en azul de plantilla; acá se respeta la
+   estructura y el layout, con la identidad real de la marca. */
+@theme {
+  --font-sans: 'Outfit', ui-sans-serif, system-ui, sans-serif;
+
+  --color-brand-50: #eef7f0;
+  --color-brand-100: #d7ecdc;
+  --color-brand-200: #bfe3c6;
+  --color-brand-300: #8ed09b;
+  --color-brand-400: #56b96c;
+  --color-brand-500: #2f9e44;
+  --color-brand-600: #278238;
+  --color-brand-700: #20682d;
+  --color-brand-800: #1a5325;
+  --color-brand-900: #133d20;
+
+  --color-accent-500: #f5871e;
+  --color-accent-400: #f9a824;
+  --color-accent-600: #e77e10;
+
+  --color-ink: #1f2937;
+  --color-ink-green: #3f4a3f;
+  --color-body: #5b665b;
+  --color-body-soft: #6b756b;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f6f8f6;
+
+  --color-ok: #2f9e44;
+  --color-warn: #f5871e;
+  --color-danger: #d64545;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-surface-alt text-ink font-sans antialiased;
+    /* La app vive en un celular sostenido con una mano: sin rebote lateral. */
+    overscroll-behavior-y: contain;
+  }
+
+  /* Los inputs con fuente <16px hacen que iOS haga zoom al enfocarlos. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  button {
+    touch-action: manipulation;
+  }
+}
+
+@utility safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+@utility safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* El chofer usa guantes y el celular al sol: objetivos táctiles grandes. */
+@utility tap-target {
+  min-height: 44px;
+  min-width: 44px;
+}

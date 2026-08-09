@@ -1,0 +1,48 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Variables de entorno — nunca al repo (es público)
+.env
+.env.local
+.env.*.local
+
+# Android / Capacitor
+# El proyecto nativo se regenera con `npx cap sync android`; lo que no se
+# versiona es lo generado por Gradle y las rutas locales del SDK.
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/
+android/local.properties
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+.gradle/
+*.keystore
+*.jks
+
+# Binarios compilados
+*.apk
+*.aab
