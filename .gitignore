@@ -27,6 +27,9 @@ dist-ssr
 .env
 .env.local
 .env.*.local
+# Se usa sólo para el despliegue manual a Vercel; en un despliegue conectado
+# a git, estas variables van en la configuración del proyecto en Vercel.
+.env.production
 
 # Android / Capacitor
 # El proyecto nativo se regenera con `npx cap sync android`; lo que no se
