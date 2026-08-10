@@ -17,6 +17,8 @@ interface AuthState {
   chofer: Chofer | null
   empresa: Empresa | null
   unidad: Unidad | null
+  /** `profiles.rol`, protegido contra auto-promoción por `profiles_rol_inmutable` */
+  esAdmin: boolean
   loading: boolean
   error: string | null
   signIn: (email: string, password: string) => Promise<void>
@@ -72,9 +74,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!profileRow) throw new Error('Tu usuario no tiene perfil en el sistema.')
       setProfile(profileRow)
 
-      // Esta app es sólo para choferes. Sin registro en `choferes`, RLS no le
-      // deja crear check lists, así que conviene decirlo de frente en vez de
-      // mostrar pantallas vacías.
+      // Un mismo inicio de sesión sirve para dos aplicaciones: los admins van
+      // al panel web y los choferes a la app. Por eso la falta de fila en
+      // `choferes` no es un error todavía — lo resuelve el enrutador.
       const { data: choferRow, error: choferError } = await supabase
         .from('choferes')
         .select('*')
@@ -82,24 +84,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .maybeSingle()
 
       if (choferError) throw choferError
-      if (!choferRow) {
-        throw new Error(
-          'Esta aplicación es para choferes. Tu usuario no está dado de alta como chofer.',
-        )
-      }
-      if (!choferRow.activo) {
+
+      if (choferRow && !choferRow.activo) {
         throw new Error('Tu alta de chofer está desactivada. Consultá con tu supervisor.')
       }
-      setChofer(choferRow)
+      setChofer(choferRow ?? null)
 
-      const { data: empresaRow } = await supabase
-        .from('empresas')
-        .select('*')
-        .eq('id', choferRow.empresa_id)
-        .maybeSingle()
-      setEmpresa(empresaRow ?? null)
+      if (!choferRow && profileRow.rol !== 'admin') {
+        throw new Error(
+          'Tu usuario no está dado de alta como chofer ni como administrador.',
+        )
+      }
 
-      await cargarUnidadAsignada(choferRow.id)
+      if (choferRow) {
+        const { data: empresaRow } = await supabase
+          .from('empresas')
+          .select('*')
+          .eq('id', choferRow.empresa_id)
+          .maybeSingle()
+        setEmpresa(empresaRow ?? null)
+
+        await cargarUnidadAsignada(choferRow.id)
+      }
     },
     [cargarUnidadAsignada],
   )
@@ -195,6 +201,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       chofer,
       empresa,
       unidad,
+      esAdmin: profile?.rol === 'admin',
       loading,
       error,
       signIn,

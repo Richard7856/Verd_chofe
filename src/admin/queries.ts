@@ -1,0 +1,288 @@
+import { supabase, BUCKET_EVIDENCIAS } from '@/lib/supabase'
+import type {
+  CargaCombustible,
+  Chofer,
+  Empresa,
+  EstadoIncidencia,
+  IncidenciaChofer,
+  Unidad,
+} from '@/lib/database.types'
+
+/**
+ * Consultas del panel de administración.
+ *
+ * Todo pasa por RLS con la sesión del admin: no hay clave privilegiada en el
+ * navegador. Las políticas `*_select` ya permiten al admin ver todo lo de sus
+ * empresas, así que no hizo falta tocar la base para esto.
+ */
+
+export interface TurnoAdmin {
+  id: string
+  fecha: string
+  estado: string
+  entrada_el: string | null
+  salida_el: string | null
+  km_inicial: number | null
+  km_final: number | null
+  ruta_turno: string | null
+  observaciones: string | null
+  firma_ruta: string | null
+  chofer_id: string
+  unidad_id: string
+  chofer: { nombre: string } | null
+  unidad: { placa: string; marca: string | null; modelo: string | null } | null
+}
+
+const SELECT_TURNO =
+  'id, fecha, estado, entrada_el, salida_el, km_inicial, km_final, ruta_turno, observaciones, firma_ruta, chofer_id, unidad_id, chofer:choferes(nombre), unidad:unidades(placa, marca, modelo)'
+
+/**
+ * Empresas que este admin puede usar.
+ *
+ * La política de `empresas` deja ver todas las activas, así que el filtro por
+ * pertenencia se hace acá: si no, el admin elegiría una empresa ajena y sólo
+ * se enteraría al enviar, cuando la Edge Function lo rechaza.
+ * `empresas_permitidas` en NULL significa "todas" — así funcionan los admins
+ * generales de `dash`.
+ */
+export async function listarEmpresas(permitidas: string[] | null): Promise<Empresa[]> {
+  const { data } = await supabase.from('empresas').select('*').eq('activo', true).order('nombre')
+  const todas = data ?? []
+  if (permitidas === null) return todas
+  return todas.filter((e) => permitidas.includes(e.slug))
+}
+
+export async function listarChoferes(): Promise<Chofer[]> {
+  const { data } = await supabase.from('choferes').select('*').order('nombre')
+  return data ?? []
+}
+
+export async function listarUnidades(): Promise<Unidad[]> {
+  const { data } = await supabase.from('unidades').select('*').order('placa')
+  return data ?? []
+}
+
+/**
+ * Choferes activos que NO abrieron turno en la fecha dada.
+ *
+ * Se resuelve con dos consultas y un diff en memoria en vez de un LEFT JOIN:
+ * PostgREST no expone anti-joins, y con la cantidad de choferes de una flota
+ * (decenas, no miles) traer ambas listas es más simple y igual de rápido que
+ * mantener una vista en la base.
+ */
+export async function sinRegistrar(fecha: string): Promise<Chofer[]> {
+  const [{ data: choferes }, { data: turnos }] = await Promise.all([
+    supabase.from('choferes').select('*').eq('activo', true).order('nombre'),
+    supabase.from('checklists_unidad').select('chofer_id').eq('fecha', fecha),
+  ])
+
+  const registraron = new Set((turnos ?? []).map((t) => t.chofer_id))
+  return (choferes ?? []).filter((c) => !registraron.has(c.id))
+}
+
+export async function turnosDe(fecha: string): Promise<TurnoAdmin[]> {
+  const { data } = await supabase
+    .from('checklists_unidad')
+    .select(SELECT_TURNO)
+    .eq('fecha', fecha)
+    .order('entrada_el', { ascending: true })
+  return (data ?? []) as unknown as TurnoAdmin[]
+}
+
+export async function listarTurnos(desde: string, hasta: string): Promise<TurnoAdmin[]> {
+  const { data } = await supabase
+    .from('checklists_unidad')
+    .select(SELECT_TURNO)
+    .gte('fecha', desde)
+    .lte('fecha', hasta)
+    .order('fecha', { ascending: false })
+    .limit(300)
+  return (data ?? []) as unknown as TurnoAdmin[]
+}
+
+export interface DetalleTurno {
+  turno: TurnoAdmin
+  items: Array<{ codigo: string; etiqueta: string; estado: string; nota: string | null }>
+  fotos: Array<{ codigo: string; etiqueta: string; ruta: string; url: string | null }>
+  firmaUrl: string | null
+}
+
+export async function detalleTurno(id: string): Promise<DetalleTurno | null> {
+  const { data: turno } = await supabase
+    .from('checklists_unidad')
+    .select(SELECT_TURNO)
+    .eq('id', id)
+    .maybeSingle()
+
+  if (!turno) return null
+
+  const [{ data: items }, { data: fotos }] = await Promise.all([
+    supabase
+      .from('checklist_unidad_items')
+      .select('codigo, etiqueta, estado, nota')
+      .eq('checklist_id', id)
+      .order('orden'),
+    supabase
+      .from('checklist_unidad_fotos')
+      .select('codigo, etiqueta, ruta')
+      .eq('checklist_id', id),
+  ])
+
+  // El bucket es privado: las imágenes sólo se ven con URL firmada temporal.
+  const rutas = (fotos ?? []).map((f) => f.ruta)
+  const firmadas = rutas.length
+    ? (await supabase.storage.from(BUCKET_EVIDENCIAS).createSignedUrls(rutas, 3600)).data ?? []
+    : []
+  const porRuta = new Map(firmadas.map((f) => [f.path, f.signedUrl]))
+
+  const t = turno as unknown as TurnoAdmin
+  let firmaUrl: string | null = null
+  if (t.firma_ruta) {
+    const { data } = await supabase.storage
+      .from(BUCKET_EVIDENCIAS)
+      .createSignedUrl(t.firma_ruta, 3600)
+    firmaUrl = data?.signedUrl ?? null
+  }
+
+  return {
+    turno: t,
+    items: items ?? [],
+    fotos: (fotos ?? []).map((f) => ({ ...f, url: porRuta.get(f.ruta) ?? null })),
+    firmaUrl,
+  }
+}
+
+export interface CargaAdmin extends CargaCombustible {
+  chofer: { nombre: string } | null
+  unidad: { placa: string } | null
+}
+
+export async function listarCargas(desde: string, hasta: string): Promise<CargaAdmin[]> {
+  const { data } = await supabase
+    .from('cargas_combustible')
+    .select('*, chofer:choferes(nombre), unidad:unidades(placa)')
+    .gte('fecha', desde)
+    .lte('fecha', hasta)
+    .order('fecha', { ascending: false })
+    .limit(300)
+  return (data ?? []) as unknown as CargaAdmin[]
+}
+
+export interface IncidenciaAdmin extends IncidenciaChofer {
+  chofer: { nombre: string } | null
+  unidad: { placa: string } | null
+}
+
+export async function listarIncidencias(soloAbiertas = false): Promise<IncidenciaAdmin[]> {
+  let q = supabase
+    .from('incidencias_chofer')
+    .select('*, chofer:choferes(nombre), unidad:unidades(placa)')
+    .order('created_at', { ascending: false })
+    .limit(200)
+
+  if (soloAbiertas) q = q.in('estado', ['abierta', 'vista'])
+
+  const { data } = await q
+  return (data ?? []) as unknown as IncidenciaAdmin[]
+}
+
+export async function cambiarEstadoIncidencia(id: string, estado: EstadoIncidencia) {
+  const { error } = await supabase
+    .from('incidencias_chofer')
+    .update({
+      estado,
+      atendida_el: estado === 'resuelta' ? new Date().toISOString() : null,
+    })
+    .eq('id', id)
+  if (error) throw error
+}
+
+/** Puntos marcados "No OK" en el rango: lo que el taller necesita ver. */
+export async function fallasRecientes(desde: string) {
+  // El cast es necesario porque los tipos de este proyecto están escritos a
+  // mano con `Relationships: []`, así que PostgREST no puede inferir la forma
+  // de la relación embebida y la colapsa a `never`.
+  const { data } = await supabase
+    .from('checklists_unidad')
+    .select('id, fecha, unidad_id, unidad:unidades(placa)')
+    .gte('fecha', desde)
+
+  const turnos = (data ?? []) as unknown as Array<{
+    id: string
+    fecha: string
+    unidad: { placa: string } | null
+  }>
+
+  if (!turnos.length) return []
+
+  const { data: items } = await supabase
+    .from('checklist_unidad_items')
+    .select('checklist_id, codigo, etiqueta, nota')
+    .eq('estado', 'no_ok')
+    .in(
+      'checklist_id',
+      turnos.map((t) => t.id),
+    )
+
+  const porTurno = new Map(turnos.map((t) => [t.id, t]))
+  return (items ?? []).map((i) => {
+    const t = porTurno.get(i.checklist_id)
+    return {
+      fecha: t?.fecha ?? '',
+      placa: t?.unidad?.placa ?? '—',
+      etiqueta: i.etiqueta,
+      nota: i.nota,
+    }
+  })
+}
+
+export async function crearUnidad(datos: {
+  empresa_id: string
+  placa: string
+  alias: string | null
+  marca: string | null
+  modelo: string | null
+  anio: number | null
+}) {
+  const { error } = await supabase.from('unidades').insert(datos)
+  if (error) throw error
+}
+
+export async function cambiarActivoChofer(id: string, activo: boolean) {
+  const { error } = await supabase.from('choferes').update({ activo }).eq('id', id)
+  if (error) throw error
+}
+
+/** Llama a la Edge Function: crear usuarios exige la service_role key. */
+export async function crearChofer(datos: {
+  email: string
+  password: string
+  nombre: string
+  empresa_id: string
+  telefono?: string | null
+  licencia_numero?: string | null
+  licencia_vence_el?: string | null
+}) {
+  const { data, error } = await supabase.functions.invoke('admin-choferes', {
+    body: { accion: 'crear', ...datos },
+  })
+
+  // Los errores del edge vienen en el cuerpo, no como excepción.
+  if (error) {
+    const detalle = await (error as { context?: Response }).context?.json?.().catch(() => null)
+    throw new Error(detalle?.error ?? error.message)
+  }
+  if (data?.error) throw new Error(data.error)
+  return data
+}
+
+export async function restablecerPassword(choferId: string, password: string) {
+  const { data, error } = await supabase.functions.invoke('admin-choferes', {
+    body: { accion: 'restablecer_password', chofer_id: choferId, password },
+  })
+  if (error) {
+    const detalle = await (error as { context?: Response }).context?.json?.().catch(() => null)
+    throw new Error(detalle?.error ?? error.message)
+  }
+  if (data?.error) throw new Error(data.error)
+}

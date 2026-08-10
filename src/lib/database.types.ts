@@ -173,7 +173,11 @@ export type IncidenciaChofer = {
   lat: number | null
   lng: number | null
   estado: EstadoIncidencia
+  atendida_el: string | null
+  atendida_por: string | null
+  notas_cierre: string | null
   created_at: string
+  updated_at: string
 }
 
 /**
