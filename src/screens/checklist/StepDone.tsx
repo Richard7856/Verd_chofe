@@ -31,10 +31,21 @@ export function StepDone({
 }) {
   const navigate = useNavigate()
   const { unidad } = useAuth()
-  const { online, pending } = useSync()
+  const { online, pending, fallidos, ultimoError } = useSync()
 
-  const enCola = !online || pending > 0
   const esApertura = modo === 'apertura'
+
+  // Tres estados distintos, no dos. Antes cualquier cosa con la cola llena
+  // decía "se envía cuando tengas señal", incluso con señal y mientras estaba
+  // subiendo — y también cuando había fallado y no iba a subir nunca.
+  const estado = fallidos > 0 ? 'error' : !online ? 'sin_señal' : pending > 0 ? 'enviando' : 'enviado'
+
+  const mensaje = {
+    error: 'Se guardó en tu teléfono, pero no se pudo enviar.',
+    sin_señal: 'Se guardó en tu teléfono y se envía solo en cuanto tengas señal.',
+    enviando: 'Guardado. Enviando…',
+    enviado: esApertura ? 'Tu check list de entrada quedó registrado.' : 'Tu turno se cerró correctamente.',
+  }[estado]
 
   return (
     <div className="safe-top flex min-h-dvh flex-col justify-between p-4">
@@ -46,13 +57,13 @@ export function StepDone({
           <h1 className="text-[22px] font-extrabold text-ink">
             {esApertura ? '¡Turno abierto!' : '¡Registro completado!'}
           </h1>
-          <p className="max-w-xs text-sm text-body-soft">
-            {enCola
-              ? 'Se guardó en tu teléfono y se envía solo en cuanto tengas señal.'
-              : esApertura
-                ? 'Tu check list de entrada quedó registrado.'
-                : 'Tu turno se cerró correctamente.'}
-          </p>
+          <p className="max-w-xs text-sm text-body-soft">{mensaje}</p>
+
+          {estado === 'error' && ultimoError && (
+            <p className="max-w-xs rounded-xl bg-red-50 px-3.5 py-3 text-sm text-[--color-danger]">
+              {ultimoError}
+            </p>
+          )}
         </div>
 
         {esApertura && (

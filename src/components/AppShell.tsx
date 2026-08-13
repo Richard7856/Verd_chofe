@@ -31,30 +31,52 @@ const TABS: Array<{ to: string; label: string; icon: IconName }> = [
  * Aviso informativo, sin botón: la sincronización es automática y el chofer
  * no tiene por qué administrar una cola. Sólo se le dice qué está pasando.
  */
+/**
+ * Aviso de estado. Sin botón: la sincronización es automática.
+ *
+ * Distingue "esperando señal" de "falló": son cosas distintas y sólo la
+ * segunda necesita que alguien haga algo. Antes ambas se veían igual —un
+ * contador que no bajaba— y un registro que no podía enviarse nunca parecía
+ * estar simplemente esperando.
+ */
 export function OfflineBanner() {
-  const { online, pending, syncing } = useSync()
+  const { online, pending, syncing, fallidos, ultimoError } = useSync()
 
   if (online && pending === 0) return null
+
+  const hayError = fallidos > 0 && online
 
   return (
     <div
       className={cx(
-        'flex items-center gap-2 px-4 py-2 text-sm',
-        online ? 'bg-brand-50 text-brand-700' : 'bg-orange-50 text-accent-600',
+        'px-4 py-2 text-sm',
+        hayError
+          ? 'bg-red-50 text-[--color-danger]'
+          : online
+            ? 'bg-brand-50 text-brand-700'
+            : 'bg-orange-50 text-accent-600',
       )}
     >
-      <Icon
-        name={online ? 'refresh' : 'cloudOff'}
-        size={16}
-        className={syncing ? 'animate-spin' : ''}
-      />
-      <span className="flex-1">
-        {!online
-          ? `Sin conexión${pending > 0 ? ` · ${pending} registro${pending === 1 ? '' : 's'} guardado${pending === 1 ? '' : 's'} en el teléfono` : ''}`
-          : syncing
-            ? 'Enviando…'
-            : `${pending} registro${pending === 1 ? '' : 's'} por enviar`}
-      </span>
+      <div className="flex items-center gap-2">
+        <Icon
+          name={hayError ? 'alert' : online ? 'refresh' : 'cloudOff'}
+          size={16}
+          className={cx('shrink-0', syncing && !hayError && 'animate-spin')}
+        />
+        <span className="flex-1">
+          {hayError
+            ? `No se pudo enviar ${fallidos} registro${fallidos === 1 ? '' : 's'}`
+            : !online
+              ? `Sin conexión${pending > 0 ? ` · ${pending} guardado${pending === 1 ? '' : 's'} en el teléfono` : ''}`
+              : syncing
+                ? 'Enviando…'
+                : `${pending} registro${pending === 1 ? '' : 's'} por enviar`}
+        </span>
+      </div>
+
+      {hayError && ultimoError && (
+        <p className="mt-0.5 pl-6 text-xs opacity-90">{ultimoError}</p>
+      )}
     </div>
   )
 }

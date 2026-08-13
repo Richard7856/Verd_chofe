@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { getPendingCount } from '@/lib/offline'
+import { getOutbox } from '@/lib/offline'
 import { flushOutbox } from '@/lib/sync'
 import { useAuth } from './AuthContext'
 
@@ -25,6 +25,10 @@ interface SyncState {
   online: boolean
   pending: number
   syncing: boolean
+  /** Registros que fallaron al enviarse; se siguen reintentando. */
+  fallidos: number
+  /** Motivo del último fallo, para poder decirle algo útil al chofer. */
+  ultimoError: string | null
   /** Se llama al encolar algo, para que salga cuanto antes. */
   sync: () => Promise<void>
   refreshPending: () => Promise<void>
@@ -37,10 +41,17 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [online, setOnline] = useState(navigator.onLine)
   const [pending, setPending] = useState(0)
   const [syncing, setSyncing] = useState(false)
+  const [fallidos, setFallidos] = useState(0)
+  const [ultimoError, setUltimoError] = useState<string | null>(null)
   const enCurso = useRef(false)
 
   const refreshPending = useCallback(async () => {
-    setPending(await getPendingCount())
+    const entradas = await getOutbox()
+    setPending(entradas.filter((e) => e.status !== 'syncing').length)
+
+    const conError = entradas.filter((e) => e.status === 'failed')
+    setFallidos(conError.length)
+    setUltimoError(conError.sort((a, b) => (b.lastAttemptAt ?? 0) - (a.lastAttemptAt ?? 0))[0]?.lastError ?? null)
   }, [])
 
   const sync = useCallback(async () => {
@@ -94,8 +105,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   }, [pending, online, chofer, sync])
 
   const value = useMemo(
-    () => ({ online, pending, syncing, sync, refreshPending }),
-    [online, pending, syncing, sync, refreshPending],
+    () => ({ online, pending, syncing, fallidos, ultimoError, sync, refreshPending }),
+    [online, pending, syncing, fallidos, ultimoError, sync, refreshPending],
   )
 
   return <SyncContext.Provider value={value}>{children}</SyncContext.Provider>

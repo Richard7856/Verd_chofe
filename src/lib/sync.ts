@@ -18,6 +18,31 @@ export interface SyncContext {
 }
 
 /**
+ * Los errores de supabase-js NO son instancias de `Error`: son objetos planos
+ * `{ message, details, hint, code }`. Un `String(error)` los convierte en
+ * "[object Object]", que fue exactamente lo que ocultó durante días por qué
+ * no subía nada. Acá se extrae algo que un humano pueda leer.
+ */
+function mensajeDeError(error: unknown): string {
+  if (error instanceof Error) return error.message
+
+  if (error && typeof error === 'object') {
+    const e = error as { message?: string; details?: string; hint?: string; code?: string }
+    const partes = [e.message, e.details, e.hint].filter(Boolean)
+    if (partes.length > 0) {
+      return partes.join(' — ') + (e.code ? ` (${e.code})` : '')
+    }
+    try {
+      return JSON.stringify(error)
+    } catch {
+      return 'Error desconocido'
+    }
+  }
+
+  return String(error)
+}
+
+/**
  * Sube todo lo que quedó en la cola. Es idempotente de punta a punta:
  *
  *   - `checklists_unidad` y `cargas_combustible` tienen UNIQUE (empresa_id, cliente_uuid)
@@ -64,7 +89,7 @@ export async function flushOutbox(ctx: SyncContext): Promise<{ synced: number; f
       await markOutbox(entry.id, {
         status: 'failed',
         attempts: entry.attempts + 1,
-        lastError: error instanceof Error ? error.message : String(error),
+        lastError: mensajeDeError(error),
       })
     }
   }
@@ -77,7 +102,14 @@ export async function flushOutbox(ctx: SyncContext): Promise<{ synced: number; f
  * fotos. El borrador NO se borra — el cierre lo necesita para el resumen.
  */
 async function pushApertura(draft: ChecklistDraft, ctx: SyncContext) {
-  if (!draft.vehicleId) throw new Error('El check list no tiene unidad asignada')
+  // Red de seguridad: la unidad es obligatoria en el paso de entrada, así que
+  // esto no debería ocurrir. Si ocurre, el mensaje tiene que decirle al chofer
+  // qué hacer, no dejarlo con un registro que reintenta para siempre.
+  if (!draft.vehicleId) {
+    throw new Error(
+      'Este check list se guardó sin unidad y no se puede enviar. Empezá uno nuevo eligiendo tu unidad.',
+    )
+  }
 
   const { data: checklist, error } = await supabase
     .from('checklists_unidad')

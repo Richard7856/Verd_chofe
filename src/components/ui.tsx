@@ -157,14 +157,21 @@ export function Select({
   onChange,
   options,
   placeholder,
+  invalid,
 }: {
   value: string
   onChange: (value: string) => void
   options: Array<{ value: string; label: string }>
   placeholder?: string
+  invalid?: boolean
 }) {
   return (
-    <div className="relative flex items-center rounded-xl border border-gray-200 bg-white px-3.5 focus-within:border-brand-400">
+    <div
+      className={cx(
+        'relative flex items-center rounded-xl border bg-white px-3.5',
+        invalid ? 'border-red-300' : 'border-gray-200 focus-within:border-brand-400',
+      )}
+    >
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
