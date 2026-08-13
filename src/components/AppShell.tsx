@@ -4,12 +4,14 @@ import { Icon, type IconName } from './Icons'
 import { Badge, cx } from './ui'
 import { useAuth } from '@/context/AuthContext'
 import { useSync } from '@/context/SyncContext'
+import { useAvisos } from '@/context/AvisosContext'
 
 const APP_VERSION = '1.0.0'
 
 const DRAWER_LINKS: Array<{ to: string; label: string; icon: IconName; badge?: string }> = [
   { to: '/', label: 'Inicio', icon: 'home' },
   { to: '/registros', label: 'Mis Registros', icon: 'clipboard' },
+  { to: '/avisos', label: 'Avisos', icon: 'bell' },
   { to: '/checklist/apertura', label: 'Registro de Entrada', icon: 'play' },
   { to: '/checklist/cierre', label: 'Cierre de Turno', icon: 'flag' },
   { to: '/combustible', label: 'Carga de Combustible', icon: 'fuel' },
@@ -27,10 +29,6 @@ const TABS: Array<{ to: string; label: string; icon: IconName }> = [
   { to: '/perfil', label: 'Perfil', icon: 'user' },
 ]
 
-/**
- * Aviso informativo, sin botón: la sincronización es automática y el chofer
- * no tiene por qué administrar una cola. Sólo se le dice qué está pasando.
- */
 /**
  * Aviso de estado. Sin botón: la sincronización es automática.
  *
@@ -84,6 +82,7 @@ export function OfflineBanner() {
 export function AppShell({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const { profile, chofer, empresa, signOut } = useAuth()
+  const { sinLeer } = useAvisos()
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -112,11 +111,16 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           <button
             type="button"
-            onClick={() => navigate('/incidencias')}
-            aria-label="Incidencias"
-            className="tap-target -mr-2 flex items-center justify-center rounded-lg px-2"
+            onClick={() => navigate('/avisos')}
+            aria-label={sinLeer > 0 ? `Avisos: ${sinLeer} sin leer` : 'Avisos'}
+            className="tap-target relative -mr-2 flex items-center justify-center rounded-lg px-2"
           >
             <Icon name="bell" size={20} />
+            {sinLeer > 0 && (
+              <span className="absolute right-0 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-500 px-1 text-[10px] font-bold text-white">
+                {sinLeer > 9 ? '9+' : sinLeer}
+              </span>
+            )}
           </button>
         </div>
       </header>

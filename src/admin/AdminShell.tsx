@@ -11,6 +11,7 @@ const SECCIONES: Array<{ to: string; label: string; icon: IconName }> = [
   { to: '/admin/unidades', label: 'Unidades', icon: 'car' },
   { to: '/admin/combustible', label: 'Combustible', icon: 'fuel' },
   { to: '/admin/incidencias', label: 'Incidencias', icon: 'alert' },
+  { to: '/admin/avisos', label: 'Avisos', icon: 'bell' },
 ]
 
 export function AdminShell({ children }: { children: ReactNode }) {

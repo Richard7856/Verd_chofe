@@ -6,6 +6,7 @@ import { Choferes } from './pages/Choferes'
 import { Unidades } from './pages/Unidades'
 import { Combustible } from './pages/Combustible'
 import { Incidencias } from './pages/Incidencias'
+import { Avisos } from './pages/Avisos'
 
 /**
  * Panel web de administración. Se carga de forma diferida desde App.tsx: el
@@ -24,6 +25,7 @@ export default function AdminApp() {
         <Route path="/unidades" element={<Unidades />} />
         <Route path="/combustible" element={<Combustible />} />
         <Route path="/incidencias" element={<Incidencias />} />
+        <Route path="/avisos" element={<Avisos />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Routes>
     </AdminShell>

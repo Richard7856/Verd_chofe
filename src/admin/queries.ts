@@ -1,10 +1,12 @@
 import { supabase, BUCKET_EVIDENCIAS } from '@/lib/supabase'
 import type {
+  AvisoChofer,
   CargaCombustible,
   Chofer,
   Empresa,
   EstadoIncidencia,
   IncidenciaChofer,
+  TipoAviso,
   Unidad,
 } from '@/lib/database.types'
 
@@ -251,6 +253,73 @@ export async function crearUnidad(datos: {
 export async function cambiarActivoChofer(id: string, activo: boolean) {
   const { error } = await supabase.from('choferes').update({ activo }).eq('id', id)
   if (error) throw error
+}
+
+export async function actualizarChofer(
+  id: string,
+  datos: {
+    nombre: string
+    telefono: string | null
+    licencia_numero: string | null
+    licencia_vence_el: string | null
+  },
+) {
+  const { error } = await supabase.from('choferes').update(datos).eq('id', id)
+  if (error) throw error
+}
+
+// -------------------------------------------------------------- avisos
+
+export interface AvisoAdmin extends AvisoChofer {
+  chofer: { nombre: string } | null
+}
+
+export async function listarAvisos(): Promise<AvisoAdmin[]> {
+  const { data } = await supabase
+    .from('avisos_chofer')
+    .select('*, chofer:choferes(nombre)')
+    .order('created_at', { ascending: false })
+    .limit(200)
+  return (data ?? []) as unknown as AvisoAdmin[]
+}
+
+/**
+ * Manda un aviso a un chofer o a todos los activos.
+ *
+ * Se inserta una fila por destinatario en vez de una sola con destinatario
+ * "todos": así cada chofer tiene su propio estado de leído, que es lo que
+ * permite saber quién realmente lo vio.
+ */
+export async function enviarAviso(datos: {
+  empresaId: string
+  choferIds: string[]
+  titulo: string
+  cuerpo: string
+  tipo: TipoAviso
+}) {
+  if (datos.choferIds.length === 0) throw new Error('Elegí al menos un destinatario')
+
+  const { data: sesion } = await supabase.auth.getUser()
+
+  const { error } = await supabase.from('avisos_chofer').insert(
+    datos.choferIds.map((choferId) => ({
+      empresa_id: datos.empresaId,
+      chofer_id: choferId,
+      titulo: datos.titulo.trim(),
+      cuerpo: datos.cuerpo.trim(),
+      tipo: datos.tipo,
+      origen: 'manual' as const,
+      creado_por: sesion.user?.id ?? null,
+    })),
+  )
+  if (error) throw error
+}
+
+/** Dispara a mano el recordatorio que normalmente corre solo cada mañana. */
+export async function generarRecordatorios(): Promise<number> {
+  const { data, error } = await supabase.rpc('generar_recordatorios_sin_registro' as never)
+  if (error) throw error
+  return (data as unknown as number) ?? 0
 }
 
 /** Llama a la Edge Function: crear usuarios exige la service_role key. */

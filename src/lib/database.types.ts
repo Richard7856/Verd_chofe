@@ -186,6 +186,23 @@ export type IncidenciaChofer = {
  * `Record<string, unknown>` (no tiene índice implícito) y el esquema entero
  * colapsaría a `never`.
  */
+export type TipoAviso = 'aviso' | 'recordatorio' | 'urgente'
+
+export type AvisoChofer = {
+  id: string
+  empresa_id: string
+  chofer_id: string
+  titulo: string
+  cuerpo: string
+  tipo: TipoAviso
+  /** 'manual' lo mandó un admin; 'automatico' lo generó la tarea programada */
+  origen: 'manual' | 'automatico'
+  creado_por: string | null
+  clave: string | null
+  leido_el: string | null
+  created_at: string
+}
+
 type Tabla<T> = {
   Row: T
   Insert: Partial<T>
@@ -209,6 +226,7 @@ export type Database = {
       checklist_unidad_fotos: Tabla<ChecklistUnidadFoto>
       cargas_combustible: Tabla<CargaCombustible>
       incidencias_chofer: Tabla<IncidenciaChofer>
+      avisos_chofer: Tabla<AvisoChofer>
     }
     Views: Record<string, never>
     Functions: Record<string, never>

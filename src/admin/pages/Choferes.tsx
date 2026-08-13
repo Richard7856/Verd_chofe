@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Badge, Button, Field, Input, Select, Spinner } from '@/components/ui'
+import { Badge, Button, Field, Input, Select, Spinner, cx } from '@/components/ui'
 import { Icon } from '@/components/Icons'
 import { PageTitle, Panel, Tabla, Td } from '../AdminShell'
 import { useAuth } from '@/context/AuthContext'
 import { shortDate } from '@/lib/format'
 import {
+  actualizarChofer,
   cambiarActivoChofer,
   crearChofer,
   listarChoferes,
@@ -40,6 +41,46 @@ export function Choferes() {
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [creado, setCreado] = useState<{ email: string; password: string } | null>(null)
+
+  const [editando, setEditando] = useState<Chofer | null>(null)
+  const [edicion, setEdicion] = useState({
+    nombre: '',
+    telefono: '',
+    licencia_numero: '',
+    licencia_vence_el: '',
+  })
+
+  function abrirEdicion(c: Chofer) {
+    setEditando(c)
+    setEdicion({
+      nombre: c.nombre,
+      telefono: c.telefono ?? '',
+      licencia_numero: c.licencia_numero ?? '',
+      licencia_vence_el: c.licencia_vence_el ?? '',
+    })
+    setCreando(false)
+    setError(null)
+  }
+
+  async function guardarEdicion() {
+    if (!editando) return
+    setGuardando(true)
+    setError(null)
+    try {
+      await actualizarChofer(editando.id, {
+        nombre: edicion.nombre.trim(),
+        telefono: edicion.telefono.trim() || null,
+        licencia_numero: edicion.licencia_numero.trim() || null,
+        licencia_vence_el: edicion.licencia_vence_el || null,
+      })
+      setEditando(null)
+      await refrescar()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo guardar')
+    } finally {
+      setGuardando(false)
+    }
+  }
 
   async function refrescar() {
     const [c, e] = await Promise.all([
@@ -161,6 +202,64 @@ export function Choferes() {
         </p>
       )}
 
+      {editando && (
+        <Panel title={`Editar · ${editando.nombre}`} className="mb-5">
+          <div className="grid gap-4 p-4 sm:grid-cols-2">
+            <Field label="Nombre completo">
+              <Input
+                value={edicion.nombre}
+                onChange={(e) => setEdicion({ ...edicion, nombre: e.target.value })}
+              />
+            </Field>
+
+            <Field label="Teléfono">
+              <Input
+                placeholder="55 1234 5678"
+                value={edicion.telefono}
+                onChange={(e) => setEdicion({ ...edicion, telefono: e.target.value })}
+              />
+            </Field>
+
+            <Field label="Licencia">
+              <Input
+                placeholder="LIC-2026-0001"
+                value={edicion.licencia_numero}
+                onChange={(e) => setEdicion({ ...edicion, licencia_numero: e.target.value })}
+              />
+            </Field>
+
+            <Field label="Vencimiento de licencia">
+              <Input
+                type="date"
+                value={edicion.licencia_vence_el}
+                onChange={(e) => setEdicion({ ...edicion, licencia_vence_el: e.target.value })}
+              />
+            </Field>
+          </div>
+
+          {/* El correo no se edita: es el usuario con el que inicia sesión y
+              cambiarlo acá lo dejaría sin poder entrar. */}
+          <p className="px-4 pb-2 text-xs text-body-soft">
+            El correo de acceso no se puede cambiar desde acá. Si hace falta, dá de alta un
+            chofer nuevo y desactivá este.
+          </p>
+
+          <div className="flex gap-2 border-t border-gray-100 px-4 py-3">
+            <Button
+              block={false}
+              loading={guardando}
+              disabled={edicion.nombre.trim().length < 3}
+              onClick={() => void guardarEdicion()}
+            >
+              Guardar cambios
+            </Button>
+            <Button block={false} variant="ghost" onClick={() => setEditando(null)}>
+              Cancelar
+            </Button>
+          </div>
+        </Panel>
+      )}
+
       {creando && (
         <Panel title="Nuevo chofer" className="mb-5">
           <div className="grid gap-4 p-4 sm:grid-cols-2">
@@ -261,15 +360,25 @@ export function Choferes() {
                     <div className="flex justify-end gap-3 whitespace-nowrap">
                       <button
                         type="button"
+                        onClick={() => abrirEdicion(c)}
+                        className="text-xs font-semibold text-brand-600 hover:underline"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => void nuevaPassword(c)}
                         className="text-xs font-semibold text-brand-600 hover:underline"
                       >
-                        Nueva contraseña
+                        Contraseña
                       </button>
                       <button
                         type="button"
                         onClick={() => void alternarActivo(c)}
-                        className="text-xs font-semibold text-body-soft hover:underline"
+                        className={cx(
+                          'text-xs font-semibold hover:underline',
+                          c.activo ? 'text-[--color-danger]' : 'text-body-soft',
+                        )}
                       >
                         {c.activo ? 'Desactivar' : 'Activar'}
                       </button>

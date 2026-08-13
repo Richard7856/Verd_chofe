@@ -3,12 +3,14 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
 import { SyncProvider } from '@/context/SyncContext'
 import { TurnoProvider } from '@/context/TurnoContext'
+import { AvisosProvider } from '@/context/AvisosContext'
 import { AppShell } from '@/components/AppShell'
 import { Button, Spinner } from '@/components/ui'
 import { Icon } from '@/components/Icons'
 import { Login } from '@/screens/Login'
 import { Home } from '@/screens/Home'
 import { Records } from '@/screens/Records'
+import { Avisos } from '@/screens/Avisos'
 import { Unit } from '@/screens/Unit'
 import { Profile } from '@/screens/Profile'
 import { Incidents } from '@/screens/Incidents'
@@ -27,6 +29,7 @@ function AppChofer() {
   return (
     <SyncProvider>
       <TurnoProvider>
+        <AvisosProvider>
         <Routes>
           <Route path="/checklist/apertura" element={<AperturaWizard />} />
           <Route path="/checklist/cierre" element={<CierreWizard />} />
@@ -40,6 +43,7 @@ function AppChofer() {
                 <Routes>
                   <Route path="/" element={<Home />} />
                   <Route path="/registros" element={<Records />} />
+                  <Route path="/avisos" element={<Avisos />} />
                   <Route path="/unidad" element={<Unit />} />
                   <Route path="/perfil" element={<Profile />} />
                   <Route path="/incidencias" element={<Incidents />} />
@@ -52,6 +56,7 @@ function AppChofer() {
             }
           />
         </Routes>
+        </AvisosProvider>
       </TurnoProvider>
     </SyncProvider>
   )
