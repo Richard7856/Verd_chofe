@@ -1,5 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { EstadoItem } from './database.types'
+import type { EstadoItem, TipoGasto } from './database.types'
 
 /**
  * Almacenamiento local. La app tiene que funcionar completa sin señal:
@@ -17,7 +17,7 @@ import type { EstadoItem } from './database.types'
  * datos de la apertura para el resumen.
  */
 
-export type DraftKind = 'checklist' | 'fuel'
+export type DraftKind = 'checklist' | 'fuel' | 'gasto'
 export type ChecklistFase = 'apertura' | 'cierre'
 
 export interface ChecklistDraft {
@@ -72,7 +72,26 @@ export interface FuelDraft {
   updatedAt: number
 }
 
-export type Draft = ChecklistDraft | FuelDraft
+export interface GastoDraft {
+  clientUuid: string
+  kind: 'gasto'
+  step: number
+  vehicleId: string | null
+  /** turno al que se carga el gasto, si hay uno abierto */
+  checklistId: string | null
+  fecha: string
+  tipo: TipoGasto
+  descripcion: string | null
+  monto: number | null
+  lugar: string | null
+  folio: string | null
+  km: number | null
+  lat: number | null
+  lng: number | null
+  updatedAt: number
+}
+
+export type Draft = ChecklistDraft | FuelDraft | GastoDraft
 
 export interface StoredPhoto {
   /** `${clientUuid}:${slotCode}` — un slot, una foto */
@@ -87,7 +106,7 @@ export interface StoredPhoto {
 }
 
 export type OutboxStatus = 'pending' | 'syncing' | 'failed'
-export type OutboxKind = 'checklist_apertura' | 'checklist_cierre' | 'fuel'
+export type OutboxKind = 'checklist_apertura' | 'checklist_cierre' | 'fuel' | 'gasto'
 
 export interface OutboxEntry {
   /** `${clientUuid}:${kind}` — apertura y cierre conviven en la cola */

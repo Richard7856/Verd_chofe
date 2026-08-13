@@ -10,6 +10,7 @@ import {
   saveDraft,
   type ChecklistDraft,
   type FuelDraft,
+  type GastoDraft,
 } from './offline'
 
 export interface SyncContext {
@@ -57,7 +58,7 @@ function mensajeDeError(error: unknown): string {
 export async function flushOutbox(ctx: SyncContext): Promise<{ synced: number; failed: number }> {
   if (!navigator.onLine) return { synced: 0, failed: 0 }
 
-  const orden = { checklist_apertura: 0, fuel: 1, checklist_cierre: 2 }
+  const orden = { checklist_apertura: 0, fuel: 1, gasto: 1, checklist_cierre: 2 }
   const entries = (await getOutbox()).sort((a, b) => orden[a.kind] - orden[b.kind])
 
   let synced = 0
@@ -80,6 +81,8 @@ export async function flushOutbox(ctx: SyncContext): Promise<{ synced: number; f
         await pushCierre(draft, ctx)
       } else if (entry.kind === 'fuel' && draft.kind === 'fuel') {
         await pushCarga(draft, ctx)
+      } else if (entry.kind === 'gasto' && draft.kind === 'gasto') {
+        await pushGasto(draft, ctx)
       }
 
       await dequeue(entry.id)
@@ -225,6 +228,48 @@ async function pushCierre(draft: ChecklistDraft, ctx: SyncContext) {
       completado_el: new Date().toISOString(),
     })
     .eq('id', checklistId)
+
+  if (error) throw error
+
+  await deleteDraft(draft.clientUuid)
+}
+
+async function pushGasto(draft: GastoDraft, ctx: SyncContext) {
+  if (!draft.vehicleId) throw new Error('El gasto no tiene unidad asignada')
+  if (!draft.monto || draft.monto <= 0) throw new Error('Falta el monto del gasto')
+
+  const fotos = await getPhotos(draft.clientUuid)
+  const ticket = fotos.find((f) => f.slotCode === 'ticket')
+
+  let ticketRuta: string | null = null
+  if (ticket) {
+    ticketRuta = `${ctx.empresaId}/gastos/${draft.clientUuid}.jpg`
+    const { error: uploadError } = await supabase.storage
+      .from(BUCKET_EVIDENCIAS)
+      .upload(ticketRuta, ticket.blob, { contentType: 'image/jpeg', upsert: true })
+    if (uploadError) throw uploadError
+  }
+
+  const { error } = await supabase.from('gastos_chofer').upsert(
+    {
+      empresa_id: ctx.empresaId,
+      chofer_id: ctx.choferId,
+      unidad_id: draft.vehicleId,
+      checklist_id: draft.checklistId,
+      fecha: draft.fecha,
+      tipo: draft.tipo,
+      descripcion: draft.descripcion,
+      monto: draft.monto,
+      lugar: draft.lugar,
+      folio: draft.folio,
+      km: draft.km,
+      ticket_ruta: ticketRuta,
+      lat: draft.lat,
+      lng: draft.lng,
+      cliente_uuid: draft.clientUuid,
+    },
+    { onConflict: 'empresa_id,cliente_uuid' },
+  )
 
   if (error) throw error
 

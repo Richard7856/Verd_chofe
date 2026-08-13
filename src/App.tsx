@@ -19,6 +19,7 @@ import { Documents, ServiceHistory } from '@/screens/Placeholder'
 import { AperturaWizard } from '@/screens/checklist/AperturaWizard'
 import { CierreWizard } from '@/screens/checklist/CierreWizard'
 import { FuelWizard } from '@/screens/fuel/FuelWizard'
+import { GastoWizard } from '@/screens/gastos/GastoWizard'
 
 // El panel de administración es web y pesa; el chofer no tiene por qué
 // descargarlo dentro del APK.
@@ -34,6 +35,7 @@ function AppChofer() {
           <Route path="/checklist/apertura" element={<AperturaWizard />} />
           <Route path="/checklist/cierre" element={<CierreWizard />} />
           <Route path="/combustible" element={<FuelWizard />} />
+          <Route path="/gastos" element={<GastoWizard />} />
           <Route path="/checklist" element={<Navigate to="/checklist/apertura" replace />} />
 
           <Route

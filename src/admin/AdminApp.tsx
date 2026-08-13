@@ -5,6 +5,7 @@ import { Turnos } from './pages/Turnos'
 import { Choferes } from './pages/Choferes'
 import { Unidades } from './pages/Unidades'
 import { Combustible } from './pages/Combustible'
+import { Gastos } from './pages/Gastos'
 import { Incidencias } from './pages/Incidencias'
 import { Avisos } from './pages/Avisos'
 
@@ -24,6 +25,7 @@ export default function AdminApp() {
         <Route path="/choferes" element={<Choferes />} />
         <Route path="/unidades" element={<Unidades />} />
         <Route path="/combustible" element={<Combustible />} />
+        <Route path="/gastos" element={<Gastos />} />
         <Route path="/incidencias" element={<Incidencias />} />
         <Route path="/avisos" element={<Avisos />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />

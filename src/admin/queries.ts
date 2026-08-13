@@ -5,6 +5,7 @@ import type {
   Chofer,
   Empresa,
   EstadoIncidencia,
+  GastoChofer,
   IncidenciaChofer,
   TipoAviso,
   Unidad,
@@ -168,6 +169,22 @@ export async function listarCargas(desde: string, hasta: string): Promise<CargaA
     .order('fecha', { ascending: false })
     .limit(300)
   return (data ?? []) as unknown as CargaAdmin[]
+}
+
+export interface GastoAdmin extends GastoChofer {
+  chofer: { nombre: string } | null
+  unidad: { placa: string } | null
+}
+
+export async function listarGastos(desde: string, hasta: string): Promise<GastoAdmin[]> {
+  const { data } = await supabase
+    .from('gastos_chofer')
+    .select('*, chofer:choferes(nombre), unidad:unidades(placa)')
+    .gte('fecha', desde)
+    .lte('fecha', hasta)
+    .order('fecha', { ascending: false })
+    .limit(300)
+  return (data ?? []) as unknown as GastoAdmin[]
 }
 
 export interface IncidenciaAdmin extends IncidenciaChofer {

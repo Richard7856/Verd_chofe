@@ -15,6 +15,7 @@ const DRAWER_LINKS: Array<{ to: string; label: string; icon: IconName; badge?: s
   { to: '/checklist/apertura', label: 'Registro de Entrada', icon: 'play' },
   { to: '/checklist/cierre', label: 'Cierre de Turno', icon: 'flag' },
   { to: '/combustible', label: 'Carga de Combustible', icon: 'fuel' },
+  { to: '/gastos', label: 'Gastos Extra', icon: 'tool' },
   { to: '/documentos', label: 'Documentos', icon: 'file' },
   { to: '/servicios', label: 'Historial de Servicios', icon: 'wrench' },
   { to: '/incidencias', label: 'Incidencias', icon: 'alert' },

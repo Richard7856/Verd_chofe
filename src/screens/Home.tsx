@@ -193,6 +193,14 @@ export function Home() {
         />
 
         <Accion
+          icon="tool"
+          titulo="Gasto extra"
+          detalle={abierto ? 'Aceite, anticongelante, ponchadura…' : 'Abrí tu turno para habilitarlo'}
+          bloqueado={!abierto}
+          onClick={() => navigate('/gastos')}
+        />
+
+        <Accion
           icon="flag"
           destacado={abierto}
           titulo="Cierre de turno"

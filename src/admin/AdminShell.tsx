@@ -10,6 +10,7 @@ const SECCIONES: Array<{ to: string; label: string; icon: IconName }> = [
   { to: '/admin/choferes', label: 'Choferes', icon: 'user' },
   { to: '/admin/unidades', label: 'Unidades', icon: 'car' },
   { to: '/admin/combustible', label: 'Combustible', icon: 'fuel' },
+  { to: '/admin/gastos', label: 'Gastos extra', icon: 'tool' },
   { to: '/admin/incidencias', label: 'Incidencias', icon: 'alert' },
   { to: '/admin/avisos', label: 'Avisos', icon: 'bell' },
 ]

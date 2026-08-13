@@ -186,6 +186,29 @@ export type IncidenciaChofer = {
  * `Record<string, unknown>` (no tiene índice implícito) y el esquema entero
  * colapsaría a `never`.
  */
+export type TipoGasto = 'aceite' | 'anticongelante' | 'ponchadura' | 'otro'
+
+export type GastoChofer = {
+  id: string
+  empresa_id: string
+  chofer_id: string
+  unidad_id: string
+  checklist_id: string | null
+  fecha: string
+  tipo: TipoGasto
+  /** Obligatoria cuando `tipo` es 'otro' — lo exige un CHECK en la base */
+  descripcion: string | null
+  monto: number
+  lugar: string | null
+  folio: string | null
+  km: number | null
+  ticket_ruta: string | null
+  lat: number | null
+  lng: number | null
+  cliente_uuid: string
+  created_at: string
+}
+
 export type TipoAviso = 'aviso' | 'recordatorio' | 'urgente'
 
 export type AvisoChofer = {
@@ -227,6 +250,7 @@ export type Database = {
       cargas_combustible: Tabla<CargaCombustible>
       incidencias_chofer: Tabla<IncidenciaChofer>
       avisos_chofer: Tabla<AvisoChofer>
+      gastos_chofer: Tabla<GastoChofer>
     }
     Views: Record<string, never>
     Functions: Record<string, never>

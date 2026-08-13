@@ -51,7 +51,12 @@ export function FuelWizard() {
   const navigate = useNavigate()
   const { unidad, chofer } = useAuth()
   const { sync, refreshPending, online, pending } = useSync()
-  const { abierto, cargando: turnoCargando, checklistId } = useTurno()
+  const { abierto, cargando: turnoCargando, checklistId, draft: turno } = useTurno()
+
+  // La unidad sale del turno abierto, NO de la asignación del chofer: esa
+  // puede estar vacía y la carga moriría al enviarse. El turno siempre tiene
+  // unidad porque es obligatoria al abrirlo.
+  const unidadDelTurno = turno?.vehicleId ?? unidad?.id ?? null
 
   const [started, setStarted] = useState(false)
   const [draft, setDraft] = useState<FuelDraft | null>(null)
@@ -93,7 +98,7 @@ export function FuelWizard() {
       const photos = await getPhotos(existing.clientUuid)
       setTicket(photos.find((p) => p.slotCode === 'ticket') ?? null)
     } else {
-      const fresh = emptyDraft(unidad?.id ?? null, checklistId)
+      const fresh = emptyDraft(unidadDelTurno, checklistId)
       const coords = await currentCoords(5000)
       fresh.lat = coords.lat
       fresh.lng = coords.lng
