@@ -3,7 +3,13 @@ import { Badge, Input, Spinner, cx } from '@/components/ui'
 import { Icon } from '@/components/Icons'
 import { PageTitle, Panel, Tabla, Td } from '../AdminShell'
 import { clockTime, km, shortDate, todayISO } from '@/lib/format'
-import { detalleTurno, listarTurnos, type DetalleTurno, type TurnoAdmin } from '../queries'
+import {
+  detalleTurno,
+  listarTurnos,
+  type DetalleTurno,
+  type FotoTurno,
+  type TurnoAdmin,
+} from '../queries'
 
 function haceDias(dias: number) {
   const d = new Date()
@@ -15,6 +21,75 @@ const ETIQUETA_ESTADO: Record<string, { label: string; tone: 'success' | 'warn' 
   ok: { label: 'OK', tone: 'success' },
   no_ok: { label: 'No OK', tone: 'warn' },
   na: { label: 'N/A', tone: 'neutral' },
+}
+
+/**
+ * Una tanda de fotos con su hora de captura.
+ *
+ * La hora es el dato que permite auditar: si el tablero de cierre se tomó a la
+ * misma hora que las de la mañana, no es del cierre. Se marca en rojo cuando
+ * se aleja más de una hora del momento que dice respaldar.
+ */
+function Galeria({
+  titulo,
+  fotos,
+  referencia,
+  vacio,
+}: {
+  titulo: string
+  fotos: FotoTurno[]
+  referencia: string | null
+  vacio: string
+}) {
+  return (
+    <Panel title={`${titulo} (${fotos.length})`}>
+      {fotos.length === 0 ? (
+        <p className="px-4 py-6 text-center text-sm text-body-soft">{vacio}</p>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3">
+          {fotos.map((f) => {
+            const desfase =
+              f.tomada_el && referencia
+                ? Math.abs(new Date(f.tomada_el).getTime() - new Date(referencia).getTime()) / 60000
+                : null
+            const sospechosa = desfase != null && desfase > 60
+
+            return (
+              <figure key={f.codigo}>
+                {f.url ? (
+                  <a href={f.url} target="_blank" rel="noreferrer">
+                    <img
+                      src={f.url}
+                      alt={f.etiqueta}
+                      loading="lazy"
+                      className="aspect-[4/3] w-full rounded-lg object-cover"
+                    />
+                  </a>
+                ) : (
+                  <div className="flex aspect-[4/3] w-full items-center justify-center rounded-lg bg-gray-100 text-body-soft">
+                    <Icon name="image" size={20} />
+                  </div>
+                )}
+                <figcaption className="mt-1 text-xs text-body-soft">{f.etiqueta}</figcaption>
+                {f.tomada_el && (
+                  <p
+                    className={cx(
+                      'text-xs tabular-nums',
+                      sospechosa ? 'font-semibold text-accent-600' : 'text-body-soft',
+                    )}
+                    title={sospechosa ? 'Tomada lejos del horario que respalda' : undefined}
+                  >
+                    {clockTime(f.tomada_el)}
+                    {sospechosa && ' ⚠'}
+                  </p>
+                )}
+              </figure>
+            )
+          })}
+        </div>
+      )}
+    </Panel>
+  )
 }
 
 function Detalle({ id, onCerrar }: { id: string; onCerrar: () => void }) {
@@ -119,34 +194,22 @@ function Detalle({ id, onCerrar }: { id: string; onCerrar: () => void }) {
               </ul>
             </Panel>
 
-            <Panel title={`Evidencia fotográfica (${datos.fotos.length})`}>
-              <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3">
-                {datos.fotos.map((f) => (
-                  <figure key={f.codigo}>
-                    {f.url ? (
-                      <a href={f.url} target="_blank" rel="noreferrer">
-                        <img
-                          src={f.url}
-                          alt={f.etiqueta}
-                          loading="lazy"
-                          className="aspect-[4/3] w-full rounded-lg object-cover"
-                        />
-                      </a>
-                    ) : (
-                      <div className="flex aspect-[4/3] w-full items-center justify-center rounded-lg bg-gray-100 text-body-soft">
-                        <Icon name="image" size={20} />
-                      </div>
-                    )}
-                    <figcaption className="mt-1 text-xs text-body-soft">{f.etiqueta}</figcaption>
-                  </figure>
-                ))}
-                {datos.fotos.length === 0 && (
-                  <p className="col-span-full py-6 text-center text-sm text-body-soft">
-                    Sin fotos cargadas.
-                  </p>
-                )}
-              </div>
-            </Panel>
+            {/* Separadas por momento y con la hora de captura: mezcladas en un
+                solo bloque no había forma de saber si el tablero correspondía
+                a la salida o venía de la revisión de la mañana. */}
+            <Galeria
+              titulo="Fotos al abrir el turno"
+              fotos={datos.fotosApertura}
+              referencia={datos.turno.entrada_el}
+              vacio="Sin fotos de apertura."
+            />
+
+            <Galeria
+              titulo="Fotos al cerrar el turno"
+              fotos={datos.fotosCierre}
+              referencia={datos.turno.salida_el}
+              vacio="El chofer cerró el turno sin foto del tablero."
+            />
 
             {datos.firmaUrl && (
               <Panel title="Firma de conformidad">

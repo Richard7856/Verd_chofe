@@ -21,6 +21,7 @@ import type {
 
 export interface TurnoAdmin {
   id: string
+  empresa_id: string
   fecha: string
   estado: string
   entrada_el: string | null
@@ -37,7 +38,7 @@ export interface TurnoAdmin {
 }
 
 const SELECT_TURNO =
-  'id, fecha, estado, entrada_el, salida_el, km_inicial, km_final, ruta_turno, observaciones, firma_ruta, chofer_id, unidad_id, chofer:choferes(nombre), unidad:unidades(placa, marca, modelo)'
+  'id, empresa_id, fecha, estado, entrada_el, salida_el, km_inicial, km_final, ruta_turno, observaciones, firma_ruta, chofer_id, unidad_id, chofer:choferes(nombre), unidad:unidades(placa, marca, modelo)'
 
 /**
  * Empresas que este admin puede usar.
@@ -103,10 +104,21 @@ export async function listarTurnos(desde: string, hasta: string): Promise<TurnoA
   return (data ?? []) as unknown as TurnoAdmin[]
 }
 
+export interface FotoTurno {
+  codigo: string
+  etiqueta: string
+  ruta: string
+  url: string | null
+  /** Cuándo la tomó el chofer: es lo que permite comprobar que es del momento */
+  tomada_el: string | null
+  momento: 'apertura' | 'cierre'
+}
+
 export interface DetalleTurno {
   turno: TurnoAdmin
   items: Array<{ codigo: string; etiqueta: string; estado: string; nota: string | null }>
-  fotos: Array<{ codigo: string; etiqueta: string; ruta: string; url: string | null }>
+  fotosApertura: FotoTurno[]
+  fotosCierre: FotoTurno[]
   firmaUrl: string | null
 }
 
@@ -127,9 +139,19 @@ export async function detalleTurno(id: string): Promise<DetalleTurno | null> {
       .order('orden'),
     supabase
       .from('checklist_unidad_fotos')
-      .select('codigo, etiqueta, ruta')
+      .select('codigo, etiqueta, ruta, tomada_el')
       .eq('checklist_id', id),
   ])
+
+  // El momento no se guarda en la foto sino en el catálogo, así que se resuelve
+  // por código. Sin esto el panel mostraba las diez de la apertura y la del
+  // cierre en un solo bloque, y no había forma de saber cuál era cuál.
+  const { data: catalogo } = await supabase
+    .from('checklist_catalogo_fotos')
+    .select('codigo, momento')
+    .eq('empresa_id', (turno as unknown as TurnoAdmin).empresa_id)
+
+  const momentoPorCodigo = new Map((catalogo ?? []).map((c) => [c.codigo, c.momento]))
 
   // El bucket es privado: las imágenes sólo se ven con URL firmada temporal.
   const rutas = (fotos ?? []).map((f) => f.ruta)
@@ -147,10 +169,17 @@ export async function detalleTurno(id: string): Promise<DetalleTurno | null> {
     firmaUrl = data?.signedUrl ?? null
   }
 
+  const todas: FotoTurno[] = (fotos ?? []).map((f) => ({
+    ...f,
+    url: porRuta.get(f.ruta) ?? null,
+    momento: momentoPorCodigo.get(f.codigo) ?? 'apertura',
+  }))
+
   return {
     turno: t,
     items: items ?? [],
-    fotos: (fotos ?? []).map((f) => ({ ...f, url: porRuta.get(f.ruta) ?? null })),
+    fotosApertura: todas.filter((f) => f.momento === 'apertura'),
+    fotosCierre: todas.filter((f) => f.momento === 'cierre'),
     firmaUrl,
   }
 }
