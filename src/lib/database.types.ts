@@ -92,6 +92,8 @@ export type CatalogoFoto = {
   orden: number
   obligatoria: boolean
   activo: boolean
+  /** En qué momento del turno se pide: al abrir o al cerrar. */
+  momento: 'apertura' | 'cierre'
 }
 
 export type ChecklistUnidad = {

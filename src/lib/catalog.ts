@@ -1,32 +1,48 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from './supabase'
 import type { CatalogoFoto, CatalogoItem } from './database.types'
 
 /**
- * Los catálogos (ítems de condiciones y slots de foto) los define el cliente
- * en la base. Se cachean en localStorage porque el chofer puede abrir la app
- * en el patio sin señal y el check list tiene que armarse igual.
+ * Los catálogos (ítems de condiciones y recuadros de foto) los define el
+ * cliente en la base. Se cachean en localStorage porque el chofer puede abrir
+ * la app en el patio sin señal y el check list tiene que armarse igual.
  */
 
-const CACHE_KEY = 'choferes.catalogos.v1'
+// v2: las fotos ganaron `momento`. Una caché v1 no lo trae, y sin este cambio
+// de clave las fotos de cierre no aparecerían hasta vaciar el navegador.
+const CACHE_KEY = 'choferes.catalogos.v2'
 
 export interface Catalogos {
   items: CatalogoItem[]
   fotos: CatalogoFoto[]
+  /** Fotos del paso de evidencia, al abrir el turno. */
+  fotosApertura: CatalogoFoto[]
+  /** Fotos que se piden al cerrar, junto al kilometraje final. */
+  fotosCierre: CatalogoFoto[]
 }
 
-function leerCache(): Catalogos | null {
+function partir(items: CatalogoItem[], fotos: CatalogoFoto[]): Catalogos {
+  return {
+    items,
+    fotos,
+    // `momento` puede faltar en filas viejas: se asume apertura.
+    fotosApertura: fotos.filter((f) => (f.momento ?? 'apertura') === 'apertura'),
+    fotosCierre: fotos.filter((f) => f.momento === 'cierre'),
+  }
+}
+
+function leerCache(): { items: CatalogoItem[]; fotos: CatalogoFoto[] } | null {
   try {
     const raw = localStorage.getItem(CACHE_KEY)
-    return raw ? (JSON.parse(raw) as Catalogos) : null
+    return raw ? JSON.parse(raw) : null
   } catch {
     return null
   }
 }
 
 export function useCatalogos(empresaId: string | null) {
-  const [catalogos, setCatalogos] = useState<Catalogos | null>(() => leerCache())
-  const [loading, setLoading] = useState(!catalogos)
+  const [crudo, setCrudo] = useState(() => leerCache())
+  const [loading, setLoading] = useState(!crudo)
 
   useEffect(() => {
     if (!empresaId) return
@@ -53,8 +69,8 @@ export function useCatalogos(empresaId: string | null) {
         return
       }
 
-      const siguiente: Catalogos = { items: items.data ?? [], fotos: fotos.data ?? [] }
-      setCatalogos(siguiente)
+      const siguiente = { items: items.data ?? [], fotos: fotos.data ?? [] }
+      setCrudo(siguiente)
       setLoading(false)
       try {
         localStorage.setItem(CACHE_KEY, JSON.stringify(siguiente))
@@ -65,6 +81,11 @@ export function useCatalogos(empresaId: string | null) {
 
     void cargar()
   }, [empresaId])
+
+  const catalogos = useMemo(
+    () => (crudo ? partir(crudo.items, crudo.fotos) : null),
+    [crudo],
+  )
 
   return { catalogos, loading }
 }

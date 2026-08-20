@@ -204,7 +204,7 @@ export function AperturaWizard() {
 
         {draft.step === 2 && (
           <StepPhotos
-            slots={catalogos.fotos}
+            slots={catalogos.fotosApertura}
             photoByCode={fotoPorCodigo}
             onCapture={capturarFoto}
             onClear={quitarFoto}

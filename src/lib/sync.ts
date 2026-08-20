@@ -204,6 +204,33 @@ async function pushCierre(draft: ChecklistDraft, ctx: SyncContext) {
     checklistId = data.id
   }
 
+  // Las fotos del cierre (el tablero con el kilometraje final) van ANTES de
+  // marcar el turno como completado: las políticas RLS sólo permiten escribir
+  // fotos mientras el check list está `en_progreso`.
+  const fotos = await getPhotos(draft.clientUuid)
+  for (const foto of fotos) {
+    const ruta = `${ctx.empresaId}/${checklistId}/${foto.slotCode}.jpg`
+
+    const { error: uploadError } = await supabase.storage
+      .from(BUCKET_EVIDENCIAS)
+      .upload(ruta, foto.blob, { contentType: 'image/jpeg', upsert: true })
+    if (uploadError) throw uploadError
+
+    const { error: rowError } = await supabase.from('checklist_unidad_fotos').upsert(
+      {
+        checklist_id: checklistId,
+        codigo: foto.slotCode,
+        etiqueta: foto.label,
+        ruta,
+        tomada_el: foto.takenAt,
+        lat: foto.lat,
+        lng: foto.lng,
+      },
+      { onConflict: 'checklist_id,codigo' },
+    )
+    if (rowError) throw rowError
+  }
+
   let firmaRuta: string | null = null
   if (draft.signature) {
     firmaRuta = `${ctx.empresaId}/${checklistId}/firma.png`

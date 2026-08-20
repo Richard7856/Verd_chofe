@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { WizardHeader } from '@/components/AppShell'
 import { Stepper } from '@/components/Stepper'
@@ -7,7 +7,16 @@ import { useAuth } from '@/context/AuthContext'
 import { useSync } from '@/context/SyncContext'
 import { useTurno } from '@/context/TurnoContext'
 import { useCatalogos } from '@/lib/catalog'
-import { enqueue, saveDraft, type ChecklistDraft } from '@/lib/offline'
+import { currentCoords } from '@/lib/capture'
+import {
+  deletePhoto,
+  enqueue,
+  getPhotos,
+  saveDraft,
+  savePhoto,
+  type ChecklistDraft,
+  type StoredPhoto,
+} from '@/lib/offline'
 import { StepExit } from './StepExit'
 import { StepSummary } from './StepSummary'
 import { StepSignature } from './StepSignature'
@@ -23,11 +32,48 @@ export function CierreWizard() {
   const { catalogos, loading: catalogosLoading } = useCatalogos(chofer?.empresa_id ?? null)
 
   const [draft, setDraft] = useState<ChecklistDraft | null>(null)
+  const [fotos, setFotos] = useState<StoredPhoto[]>([])
   const [enviando, setEnviando] = useState(false)
   const [enviado, setEnviado] = useState(false)
 
   // El borrador viene del turno; sólo se copia al estado local la primera vez.
   const actual = draft ?? draftTurno
+  const clientUuid = actual?.clientUuid
+
+  // Las fotos de la apertura ya se borraron del teléfono al subirse, así que
+  // acá sólo quedan las del cierre.
+  useEffect(() => {
+    if (!clientUuid) return
+    void getPhotos(clientUuid).then(setFotos)
+  }, [clientUuid])
+
+  const capturarFoto = useCallback(
+    async (codigo: string, etiqueta: string, blob: Blob) => {
+      if (!clientUuid) return
+      const coords = await currentCoords(4000)
+      await savePhoto({
+        key: `${clientUuid}:${codigo}`,
+        clientUuid,
+        slotCode: codigo,
+        label: etiqueta,
+        blob,
+        takenAt: new Date().toISOString(),
+        lat: coords.lat,
+        lng: coords.lng,
+      })
+      setFotos(await getPhotos(clientUuid))
+    },
+    [clientUuid],
+  )
+
+  const quitarFoto = useCallback(
+    async (codigo: string) => {
+      if (!clientUuid) return
+      await deletePhoto(`${clientUuid}:${codigo}`)
+      setFotos(await getPhotos(clientUuid))
+    },
+    [clientUuid],
+  )
 
   const patch = useCallback(
     (cambios: Partial<ChecklistDraft>) => {
@@ -71,15 +117,23 @@ export function CierreWizard() {
 
       <div className="flex-1">
         {actual.step === 0 && (
-          <StepExit draft={actual} patch={patch} onNext={() => patch({ step: 1 })} />
+          <StepExit
+            draft={actual}
+            patch={patch}
+            onNext={() => patch({ step: 1 })}
+            slots={catalogos?.fotosCierre ?? []}
+            photoByCode={new Map(fotos.map((f) => [f.slotCode, f]))}
+            onCapture={capturarFoto}
+            onClear={quitarFoto}
+          />
         )}
 
         {actual.step === 1 && (
           <StepSummary
             draft={actual}
             items={catalogos?.items ?? []}
-            slots={catalogos?.fotos ?? []}
-            photoCount={catalogos?.fotos.length ?? 0}
+            slots={catalogos?.fotosApertura ?? []}
+            photoCount={catalogos?.fotosApertura.length ?? 0}
             onNext={() => patch({ step: 2 })}
             onEdit={(paso) => patch({ step: paso })}
           />
