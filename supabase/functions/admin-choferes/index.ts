@@ -161,6 +161,20 @@ Deno.serve(async (req) => {
       .maybeSingle()
     if (!chofer) return responder({ error: 'Chofer no encontrado' }, 404)
 
+    // Un admin acotado a ciertas empresas no puede tocar choferes de otra.
+    // Sin esta comprobación bastaba con conocer el id del chofer.
+    const permitidasReset = perfil.empresas_permitidas as string[] | null
+    if (permitidasReset !== null) {
+      const { data: empresaChofer } = await admin
+        .from('empresas')
+        .select('slug')
+        .eq('id', chofer.empresa_id)
+        .maybeSingle()
+      if (!empresaChofer || !permitidasReset.includes(empresaChofer.slug)) {
+        return responder({ error: 'Ese chofer no pertenece a tus empresas' }, 403)
+      }
+    }
+
     const { error } = await admin.auth.admin.updateUserById(chofer.user_id, { password })
     if (error) return responder({ error: error.message }, 400)
 
