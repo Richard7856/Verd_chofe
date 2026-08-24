@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Badge, Input, Spinner } from '@/components/ui'
 import { Metric, PageTitle, Panel, Tabla, Td } from '../AdminShell'
+import { CeldaFoto } from '../CeldaFoto'
 import { money, shortDate, todayISO } from '@/lib/format'
 import { listarGastos, type GastoAdmin } from '../queries'
 import type { TipoGasto } from '@/lib/database.types'
@@ -135,7 +136,7 @@ export function Gastos() {
 
           <Panel title="Movimientos">
             <Tabla
-              columnas={['Fecha', 'Chofer', 'Unidad', 'Tipo', 'Detalle', 'Lugar', 'Monto']}
+              columnas={['Fecha', 'Chofer', 'Unidad', 'Tipo', 'Detalle', 'Lugar', 'Monto', 'Ticket']}
               vacio="Sin gastos en el rango."
             >
               {gastos.map((g) => (
@@ -149,6 +150,12 @@ export function Gastos() {
                   <Td className="max-w-xs text-body">{g.descripcion || '—'}</Td>
                   <Td className="text-body-soft">{g.lugar || '—'}</Td>
                   <Td className="tabular-nums font-semibold">{money(Number(g.monto))}</Td>
+                  <Td>
+                    <CeldaFoto
+                      url={g.ticket_url}
+                      titulo={`Ticket de ${ETIQUETA[g.tipo].label.toLowerCase()} · ${g.chofer?.nombre ?? '—'} · ${shortDate(g.fecha)}`}
+                    />
+                  </Td>
                 </tr>
               ))}
             </Tabla>

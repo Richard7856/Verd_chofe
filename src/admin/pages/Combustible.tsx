@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Input, Spinner } from '@/components/ui'
 import { Metric, PageTitle, Panel, Tabla, Td } from '../AdminShell'
+import { CeldaFoto } from '../CeldaFoto'
 import { liters, money, shortDate, todayISO } from '@/lib/format'
 import { listarCargas, type CargaAdmin } from '../queries'
 
@@ -105,7 +106,7 @@ export function Combustible() {
 
           <Panel title="Cargas">
             <Tabla
-              columnas={['Fecha', 'Chofer', 'Unidad', 'Estación', 'Litros', '$/L', 'Total']}
+              columnas={['Fecha', 'Chofer', 'Unidad', 'Estación', 'Litros', '$/L', 'Total', 'Ticket']}
               vacio="Sin cargas en el rango."
             >
               {cargas.map((c) => (
@@ -117,6 +118,12 @@ export function Combustible() {
                   <Td className="tabular-nums">{liters(Number(c.litros))}</Td>
                   <Td className="tabular-nums">{money(Number(c.precio_litro))}</Td>
                   <Td className="tabular-nums font-semibold">{money(Number(c.total))}</Td>
+                  <Td>
+                    <CeldaFoto
+                      url={c.ticket_url}
+                      titulo={`Ticket de combustible · ${c.chofer?.nombre ?? '—'} · ${shortDate(c.fecha)}`}
+                    />
+                  </Td>
                 </tr>
               ))}
             </Tabla>

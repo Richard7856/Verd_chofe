@@ -104,6 +104,24 @@ export async function listarTurnos(desde: string, hasta: string): Promise<TurnoA
   return (data ?? []) as unknown as TurnoAdmin[]
 }
 
+/**
+ * Firma en un solo request las rutas del bucket privado de evidencias.
+ * Devuelve ruta → URL temporal (1 h). Una ruta que falla al firmar
+ * simplemente no aparece en el mapa, y quien consulta muestra el hueco.
+ */
+async function firmarRutas(rutas: string[]): Promise<Map<string, string>> {
+  const unicas = [...new Set(rutas)]
+  if (unicas.length === 0) return new Map()
+
+  const { data } = await supabase.storage.from(BUCKET_EVIDENCIAS).createSignedUrls(unicas, 3600)
+
+  const mapa = new Map<string, string>()
+  for (const f of data ?? []) {
+    if (f.path && f.signedUrl) mapa.set(f.path, f.signedUrl)
+  }
+  return mapa
+}
+
 export interface FotoTurno {
   codigo: string
   etiqueta: string
@@ -153,21 +171,13 @@ export async function detalleTurno(id: string): Promise<DetalleTurno | null> {
 
   const momentoPorCodigo = new Map((catalogo ?? []).map((c) => [c.codigo, c.momento]))
 
-  // El bucket es privado: las imágenes sólo se ven con URL firmada temporal.
-  const rutas = (fotos ?? []).map((f) => f.ruta)
-  const firmadas = rutas.length
-    ? (await supabase.storage.from(BUCKET_EVIDENCIAS).createSignedUrls(rutas, 3600)).data ?? []
-    : []
-  const porRuta = new Map(firmadas.map((f) => [f.path, f.signedUrl]))
-
   const t = turno as unknown as TurnoAdmin
-  let firmaUrl: string | null = null
-  if (t.firma_ruta) {
-    const { data } = await supabase.storage
-      .from(BUCKET_EVIDENCIAS)
-      .createSignedUrl(t.firma_ruta, 3600)
-    firmaUrl = data?.signedUrl ?? null
-  }
+
+  // El bucket es privado: las imágenes sólo se ven con URL firmada temporal.
+  const porRuta = await firmarRutas([
+    ...(fotos ?? []).map((f) => f.ruta),
+    ...(t.firma_ruta ? [t.firma_ruta] : []),
+  ])
 
   const todas: FotoTurno[] = (fotos ?? []).map((f) => ({
     ...f,
@@ -180,13 +190,15 @@ export async function detalleTurno(id: string): Promise<DetalleTurno | null> {
     items: items ?? [],
     fotosApertura: todas.filter((f) => f.momento === 'apertura'),
     fotosCierre: todas.filter((f) => f.momento === 'cierre'),
-    firmaUrl,
+    firmaUrl: (t.firma_ruta && porRuta.get(t.firma_ruta)) || null,
   }
 }
 
 export interface CargaAdmin extends CargaCombustible {
   chofer: { nombre: string } | null
   unidad: { placa: string } | null
+  /** URL firmada del ticket, cuando el chofer lo fotografió. */
+  ticket_url: string | null
 }
 
 export async function listarCargas(desde: string, hasta: string): Promise<CargaAdmin[]> {
@@ -197,12 +209,20 @@ export async function listarCargas(desde: string, hasta: string): Promise<CargaA
     .lte('fecha', hasta)
     .order('fecha', { ascending: false })
     .limit(300)
-  return (data ?? []) as unknown as CargaAdmin[]
+
+  const filas = (data ?? []) as unknown as CargaAdmin[]
+  const urls = await firmarRutas(filas.map((f) => f.ticket_ruta).filter((r) => r != null))
+  return filas.map((f) => ({
+    ...f,
+    ticket_url: (f.ticket_ruta && urls.get(f.ticket_ruta)) || null,
+  }))
 }
 
 export interface GastoAdmin extends GastoChofer {
   chofer: { nombre: string } | null
   unidad: { placa: string } | null
+  /** URL firmada del ticket, cuando el chofer lo fotografió. */
+  ticket_url: string | null
 }
 
 export async function listarGastos(desde: string, hasta: string): Promise<GastoAdmin[]> {
@@ -213,7 +233,13 @@ export async function listarGastos(desde: string, hasta: string): Promise<GastoA
     .lte('fecha', hasta)
     .order('fecha', { ascending: false })
     .limit(300)
-  return (data ?? []) as unknown as GastoAdmin[]
+
+  const filas = (data ?? []) as unknown as GastoAdmin[]
+  const urls = await firmarRutas(filas.map((f) => f.ticket_ruta).filter((r) => r != null))
+  return filas.map((f) => ({
+    ...f,
+    ticket_url: (f.ticket_ruta && urls.get(f.ticket_ruta)) || null,
+  }))
 }
 
 export interface IncidenciaAdmin extends IncidenciaChofer {
