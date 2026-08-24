@@ -5,6 +5,7 @@ import type {
   Chofer,
   Empresa,
   EstadoIncidencia,
+  EstadoUnidad,
   GastoChofer,
   IncidenciaChofer,
   TipoAviso,
@@ -320,6 +321,44 @@ export async function crearUnidad(datos: {
 }) {
   const { error } = await supabase.from('unidades').insert(datos)
   if (error) throw error
+}
+
+export async function actualizarUnidad(
+  id: string,
+  datos: {
+    placa: string
+    alias: string | null
+    marca: string | null
+    modelo: string | null
+    anio: number | null
+    estado: EstadoUnidad
+  },
+) {
+  const { error } = await supabase.from('unidades').update(datos).eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+/**
+ * Borra una unidad. Sólo funciona si nada la referencia: los turnos, cargas
+ * y gastos apuntan a `unidad_id` sin CASCADE a propósito — borrar la unidad
+ * no debe borrar su historial. Para retirar una con registros, se desactiva.
+ */
+export async function eliminarUnidad(id: string) {
+  const { error } = await supabase.from('unidades').delete().eq('id', id)
+  if (error) {
+    if (error.code === '23503') {
+      throw new Error(
+        'Esta unidad ya tiene registros (turnos, cargas o gastos) y no se puede eliminar sin perderlos. Desactivala: deja de aparecer en la app de los choferes pero su historial se conserva.',
+      )
+    }
+    throw new Error(error.message)
+  }
+}
+
+/** La app del chofer sólo lista unidades activas: desactivar la retira de uso. */
+export async function cambiarActivoUnidad(id: string, activo: boolean) {
+  const { error } = await supabase.from('unidades').update({ activo }).eq('id', id)
+  if (error) throw new Error(error.message)
 }
 
 export async function cambiarActivoChofer(id: string, activo: boolean) {
