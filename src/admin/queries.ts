@@ -8,6 +8,8 @@ import type {
   EstadoUnidad,
   GastoChofer,
   IncidenciaChofer,
+  OrigenFoto,
+  RevisionFoto,
   TipoAviso,
   Unidad,
 } from '@/lib/database.types'
@@ -131,6 +133,7 @@ export interface FotoTurno {
   /** Cuándo la tomó el chofer: es lo que permite comprobar que es del momento */
   tomada_el: string | null
   momento: 'apertura' | 'cierre'
+  revision: RevisionFoto | null
 }
 
 export interface DetalleTurno {
@@ -175,15 +178,19 @@ export async function detalleTurno(id: string): Promise<DetalleTurno | null> {
   const t = turno as unknown as TurnoAdmin
 
   // El bucket es privado: las imágenes sólo se ven con URL firmada temporal.
-  const porRuta = await firmarRutas([
-    ...(fotos ?? []).map((f) => f.ruta),
-    ...(t.firma_ruta ? [t.firma_ruta] : []),
+  const [porRuta, revisiones] = await Promise.all([
+    firmarRutas([
+      ...(fotos ?? []).map((f) => f.ruta),
+      ...(t.firma_ruta ? [t.firma_ruta] : []),
+    ]),
+    revisionesPorRuta((fotos ?? []).map((f) => f.ruta)),
   ])
 
   const todas: FotoTurno[] = (fotos ?? []).map((f) => ({
     ...f,
     url: porRuta.get(f.ruta) ?? null,
     momento: momentoPorCodigo.get(f.codigo) ?? 'apertura',
+    revision: revisiones.get(f.ruta) ?? null,
   }))
 
   return {
@@ -200,6 +207,7 @@ export interface CargaAdmin extends CargaCombustible {
   unidad: { placa: string } | null
   /** URL firmada del ticket, cuando el chofer lo fotografió. */
   ticket_url: string | null
+  ticket_revision: RevisionFoto | null
 }
 
 export async function listarCargas(desde: string, hasta: string): Promise<CargaAdmin[]> {
@@ -212,10 +220,15 @@ export async function listarCargas(desde: string, hasta: string): Promise<CargaA
     .limit(300)
 
   const filas = (data ?? []) as unknown as CargaAdmin[]
-  const urls = await firmarRutas(filas.map((f) => f.ticket_ruta).filter((r) => r != null))
+  const rutas = filas.map((f) => f.ticket_ruta)
+  const [urls, revisiones] = await Promise.all([
+    firmarRutas(rutas.filter((r) => r != null)),
+    revisionesPorRuta(rutas),
+  ])
   return filas.map((f) => ({
     ...f,
     ticket_url: (f.ticket_ruta && urls.get(f.ticket_ruta)) || null,
+    ticket_revision: (f.ticket_ruta && revisiones.get(f.ticket_ruta)) || null,
   }))
 }
 
@@ -224,6 +237,7 @@ export interface GastoAdmin extends GastoChofer {
   unidad: { placa: string } | null
   /** URL firmada del ticket, cuando el chofer lo fotografió. */
   ticket_url: string | null
+  ticket_revision: RevisionFoto | null
 }
 
 export async function listarGastos(desde: string, hasta: string): Promise<GastoAdmin[]> {
@@ -236,10 +250,15 @@ export async function listarGastos(desde: string, hasta: string): Promise<GastoA
     .limit(300)
 
   const filas = (data ?? []) as unknown as GastoAdmin[]
-  const urls = await firmarRutas(filas.map((f) => f.ticket_ruta).filter((r) => r != null))
+  const rutas = filas.map((f) => f.ticket_ruta)
+  const [urls, revisiones] = await Promise.all([
+    firmarRutas(rutas.filter((r) => r != null)),
+    revisionesPorRuta(rutas),
+  ])
   return filas.map((f) => ({
     ...f,
     ticket_url: (f.ticket_ruta && urls.get(f.ticket_ruta)) || null,
+    ticket_revision: (f.ticket_ruta && revisiones.get(f.ticket_ruta)) || null,
   }))
 }
 
@@ -321,6 +340,162 @@ export async function crearUnidad(datos: {
 }) {
   const { error } = await supabase.from('unidades').insert(datos)
   if (error) throw error
+}
+
+// -------------------------------------------------- reporte por chofer
+
+export interface TurnoReporte {
+  id: string
+  fecha: string
+  estado: string
+  km_inicial: number | null
+  km_final: number | null
+  unidad: { placa: string } | null
+}
+
+export interface CargaReporte {
+  id: string
+  fecha: string
+  litros: number
+  precio_litro: number
+  total: number
+  estacion: string | null
+  unidad: { placa: string } | null
+}
+
+export interface GastoReporte {
+  id: string
+  fecha: string
+  tipo: string
+  monto: number
+  lugar: string | null
+  descripcion: string | null
+  unidad: { placa: string } | null
+}
+
+export interface IncidenciaReporte {
+  id: string
+  created_at: string
+  tipo: string
+  descripcion: string
+  estado: string
+}
+
+/** Todo lo que hizo un chofer en el rango: la vista para revisar a una persona. */
+export async function reporteChofer(choferId: string, desde: string, hasta: string) {
+  const [turnos, cargas, gastos, incidencias] = await Promise.all([
+    supabase
+      .from('checklists_unidad')
+      .select('id, fecha, estado, km_inicial, km_final, unidad:unidades(placa)')
+      .eq('chofer_id', choferId)
+      .gte('fecha', desde)
+      .lte('fecha', hasta)
+      .order('fecha', { ascending: false }),
+    supabase
+      .from('cargas_combustible')
+      .select('id, fecha, litros, precio_litro, total, estacion, unidad:unidades(placa)')
+      .eq('chofer_id', choferId)
+      .gte('fecha', desde)
+      .lte('fecha', hasta)
+      .order('fecha', { ascending: false }),
+    supabase
+      .from('gastos_chofer')
+      .select('id, fecha, tipo, monto, lugar, descripcion, unidad:unidades(placa)')
+      .eq('chofer_id', choferId)
+      .gte('fecha', desde)
+      .lte('fecha', hasta)
+      .order('fecha', { ascending: false }),
+    supabase
+      .from('incidencias_chofer')
+      .select('id, created_at, tipo, descripcion, estado')
+      .eq('chofer_id', choferId)
+      .gte('created_at', desde)
+      .lte('created_at', `${hasta}T23:59:59`)
+      .order('created_at', { ascending: false }),
+  ])
+
+  return {
+    turnos: (turnos.data ?? []) as unknown as TurnoReporte[],
+    cargas: (cargas.data ?? []) as unknown as CargaReporte[],
+    gastos: (gastos.data ?? []) as unknown as GastoReporte[],
+    incidencias: (incidencias.data ?? []) as unknown as IncidenciaReporte[],
+  }
+}
+
+// -------------------------------------------------- revisión de fotos
+
+/** Lo que identifica a una foto revisable, venga de donde venga. */
+export interface DatosFoto {
+  empresa_id: string
+  chofer_id: string
+  origen: OrigenFoto
+  referencia_id: string
+  etiqueta: string
+  ruta: string
+}
+
+/** Revisiones existentes para un conjunto de rutas, indexadas por ruta. */
+export async function revisionesPorRuta(
+  rutas: Array<string | null>,
+): Promise<Map<string, RevisionFoto>> {
+  const unicas = [...new Set(rutas.filter((r) => r != null))]
+  if (unicas.length === 0) return new Map()
+
+  const { data } = await supabase.from('revisiones_foto').select('*').in('ruta', unicas)
+  return new Map(((data ?? []) as RevisionFoto[]).map((r) => [r.ruta, r]))
+}
+
+export async function aprobarFoto(foto: DatosFoto) {
+  const { data: sesion } = await supabase.auth.getUser()
+
+  const { error } = await supabase.from('revisiones_foto').upsert(
+    {
+      ...foto,
+      estado: 'aprobada' as const,
+      motivo: null,
+      revisada_por: sesion.user?.id ?? null,
+      revisada_el: new Date().toISOString(),
+      resubida_el: null,
+    },
+    { onConflict: 'ruta' },
+  )
+  if (error) throw new Error(error.message)
+}
+
+/**
+ * Rechaza una foto: la borra del bucket, deja la revisión en 'rechazada' y
+ * le manda un aviso al chofer. La app del chofer lista sus rechazadas y las
+ * re-sube a la MISMA ruta, así que los registros no cambian.
+ */
+export async function rechazarFoto(foto: DatosFoto, motivo: string) {
+  const { data: sesion } = await supabase.auth.getUser()
+
+  // Primero la revisión: si esto falla, la foto no se toca.
+  const { error } = await supabase.from('revisiones_foto').upsert(
+    {
+      ...foto,
+      estado: 'rechazada' as const,
+      motivo: motivo.trim(),
+      revisada_por: sesion.user?.id ?? null,
+      revisada_el: new Date().toISOString(),
+      resubida_el: null,
+    },
+    { onConflict: 'ruta' },
+  )
+  if (error) throw new Error(error.message)
+
+  await supabase.storage.from(BUCKET_EVIDENCIAS).remove([foto.ruta])
+
+  // El aviso es lo primero que el chofer ve al abrir la app.
+  await supabase.from('avisos_chofer').insert({
+    empresa_id: foto.empresa_id,
+    chofer_id: foto.chofer_id,
+    titulo: 'Foto rechazada: hay que subirla de nuevo',
+    cuerpo: `Tu foto "${foto.etiqueta}" fue rechazada: ${motivo.trim()}. Entrá a "Fotos por resubir" en la app y tomala otra vez.`,
+    tipo: 'urgente' as const,
+    origen: 'manual' as const,
+    creado_por: sesion.user?.id ?? null,
+  })
 }
 
 export async function actualizarUnidad(

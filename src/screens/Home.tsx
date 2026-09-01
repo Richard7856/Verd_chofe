@@ -69,6 +69,18 @@ export function Home() {
   const navigate = useNavigate()
   const [recientes, setRecientes] = useState<RegistroReciente[]>([])
   const [loading, setLoading] = useState(true)
+  const [fotosPorResubir, setFotosPorResubir] = useState(0)
+
+  // Fotos que el supervisor rechazó: el chofer tiene que volver a tomarlas.
+  useEffect(() => {
+    if (!chofer) return
+    void supabase
+      .from('revisiones_foto')
+      .select('id', { count: 'exact', head: true })
+      .eq('chofer_id', chofer.id)
+      .eq('estado', 'rechazada')
+      .then(({ count }) => setFotosPorResubir(count ?? 0))
+  }, [chofer])
 
   useEffect(() => {
     if (!chofer) return
@@ -124,6 +136,30 @@ export function Home() {
         <h1 className="text-[22px] font-extrabold text-ink">¡Hola, {primerNombre}! 👋</h1>
         <p className="text-sm text-body-soft">Operador</p>
       </div>
+
+      {/* --------------------------------------------- fotos rechazadas */}
+      {fotosPorResubir > 0 && (
+        <Link to="/resubir" className="block">
+          <Card className="border border-accent-400/60 bg-orange-50/70">
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-orange-100 text-accent-600">
+                <Icon name="camera" size={18} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="font-bold text-accent-600">
+                  {fotosPorResubir === 1
+                    ? 'Tenés 1 foto por resubir'
+                    : `Tenés ${fotosPorResubir} fotos por resubir`}
+                </p>
+                <p className="text-sm text-body">
+                  Tu supervisor las rechazó. Tocá para tomarlas de nuevo.
+                </p>
+              </div>
+              <Icon name="chevronRight" size={18} className="shrink-0 text-accent-600" />
+            </div>
+          </Card>
+        </Link>
+      )}
 
       {/* ------------------------------------------------ estado del turno */}
       {abierto ? (

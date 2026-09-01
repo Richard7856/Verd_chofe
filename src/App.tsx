@@ -14,6 +14,7 @@ import { Avisos } from '@/screens/Avisos'
 import { Unit } from '@/screens/Unit'
 import { Profile } from '@/screens/Profile'
 import { Incidents } from '@/screens/Incidents'
+import { ResubirFotos } from '@/screens/ResubirFotos'
 import { Settings } from '@/screens/Settings'
 import { Documents, ServiceHistory } from '@/screens/Placeholder'
 import { AperturaWizard } from '@/screens/checklist/AperturaWizard'
@@ -49,6 +50,7 @@ function AppChofer() {
                   <Route path="/unidad" element={<Unit />} />
                   <Route path="/perfil" element={<Profile />} />
                   <Route path="/incidencias" element={<Incidents />} />
+                  <Route path="/resubir" element={<ResubirFotos />} />
                   <Route path="/documentos" element={<Documents />} />
                   <Route path="/servicios" element={<ServiceHistory />} />
                   <Route path="/configuracion" element={<Settings />} />

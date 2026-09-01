@@ -7,6 +7,7 @@ import { useAuth } from '@/context/AuthContext'
 const SECCIONES: Array<{ to: string; label: string; icon: IconName }> = [
   { to: '/admin', label: 'Resumen', icon: 'home' },
   { to: '/admin/turnos', label: 'Turnos', icon: 'clipboard' },
+  { to: '/admin/reporte', label: 'Reporte por chofer', icon: 'gauge' },
   { to: '/admin/choferes', label: 'Choferes', icon: 'user' },
   { to: '/admin/unidades', label: 'Unidades', icon: 'car' },
   { to: '/admin/combustible', label: 'Combustible', icon: 'fuel' },

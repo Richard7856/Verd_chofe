@@ -3,7 +3,13 @@ import { Input, Spinner } from '@/components/ui'
 import { Metric, PageTitle, Panel, Tabla, Td } from '../AdminShell'
 import { CeldaFoto } from '../CeldaFoto'
 import { liters, money, shortDate, todayISO } from '@/lib/format'
-import { listarCargas, type CargaAdmin } from '../queries'
+import {
+  aprobarFoto,
+  listarCargas,
+  rechazarFoto,
+  type CargaAdmin,
+  type DatosFoto,
+} from '../queries'
 
 function haceDias(dias: number) {
   const d = new Date()
@@ -16,6 +22,7 @@ export function Combustible() {
   const [hasta, setHasta] = useState(todayISO())
   const [cargas, setCargas] = useState<CargaAdmin[]>([])
   const [cargando, setCargando] = useState(true)
+  const [version, setVersion] = useState(0)
 
   useEffect(() => {
     let vigente = true
@@ -28,7 +35,18 @@ export function Combustible() {
     return () => {
       vigente = false
     }
-  }, [desde, hasta])
+  }, [desde, hasta, version])
+
+  function datosTicket(c: CargaAdmin): DatosFoto {
+    return {
+      empresa_id: c.empresa_id,
+      chofer_id: c.chofer_id,
+      origen: 'combustible',
+      referencia_id: c.id,
+      etiqueta: `Ticket de combustible del ${shortDate(c.fecha)}`,
+      ruta: c.ticket_ruta ?? '',
+    }
+  }
 
   const totales = useMemo(() => {
     const gasto = cargas.reduce((s, c) => s + Number(c.total), 0)
@@ -122,6 +140,15 @@ export function Combustible() {
                     <CeldaFoto
                       url={c.ticket_url}
                       titulo={`Ticket de combustible · ${c.chofer?.nombre ?? '—'} · ${shortDate(c.fecha)}`}
+                      revision={c.ticket_revision}
+                      onAprobar={async () => {
+                        await aprobarFoto(datosTicket(c))
+                        setVersion((v) => v + 1)
+                      }}
+                      onRechazar={async (motivo) => {
+                        await rechazarFoto(datosTicket(c), motivo)
+                        setVersion((v) => v + 1)
+                      }}
                     />
                   </Td>
                 </tr>

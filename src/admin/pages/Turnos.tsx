@@ -2,10 +2,14 @@ import { useEffect, useState } from 'react'
 import { Badge, Input, Spinner, cx } from '@/components/ui'
 import { Icon } from '@/components/Icons'
 import { PageTitle, Panel, Tabla, Td } from '../AdminShell'
+import { RevisionBadge, Visor } from '../CeldaFoto'
 import { clockTime, km, shortDate, todayISO } from '@/lib/format'
 import {
+  aprobarFoto,
   detalleTurno,
   listarTurnos,
+  rechazarFoto,
+  type DatosFoto,
   type DetalleTurno,
   type FotoTurno,
   type TurnoAdmin,
@@ -35,12 +39,29 @@ function Galeria({
   fotos,
   referencia,
   vacio,
+  turno,
+  onRevisada,
 }: {
   titulo: string
   fotos: FotoTurno[]
   referencia: string | null
   vacio: string
+  turno: TurnoAdmin
+  onRevisada: () => void
 }) {
+  const [abierta, setAbierta] = useState<FotoTurno | null>(null)
+
+  function datosFoto(f: FotoTurno): DatosFoto {
+    return {
+      empresa_id: turno.empresa_id,
+      chofer_id: turno.chofer_id,
+      origen: 'checklist',
+      referencia_id: turno.id,
+      etiqueta: f.etiqueta,
+      ruta: f.ruta,
+    }
+  }
+
   return (
     <Panel title={`${titulo} (${fotos.length})`}>
       {fotos.length === 0 ? (
@@ -53,24 +74,38 @@ function Galeria({
                 ? Math.abs(new Date(f.tomada_el).getTime() - new Date(referencia).getTime()) / 60000
                 : null
             const sospechosa = desfase != null && desfase > 60
+            const rechazada = !f.url && f.revision?.estado === 'rechazada'
 
             return (
               <figure key={f.codigo}>
                 {f.url ? (
-                  <a href={f.url} target="_blank" rel="noreferrer">
+                  <button type="button" onClick={() => setAbierta(f)} className="block w-full">
                     <img
                       src={f.url}
                       alt={f.etiqueta}
                       loading="lazy"
                       className="aspect-[4/3] w-full rounded-lg object-cover"
                     />
-                  </a>
+                  </button>
+                ) : rechazada ? (
+                  <div className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-1 rounded-lg border border-accent-400/50 bg-orange-50/60 p-2 text-center text-accent-600">
+                    <Icon name="alert" size={20} />
+                    <span className="text-xs font-semibold">Rechazada</span>
+                    {f.revision?.motivo && (
+                      <span className="text-[11px] leading-tight text-body-soft">
+                        {f.revision.motivo}
+                      </span>
+                    )}
+                  </div>
                 ) : (
                   <div className="flex aspect-[4/3] w-full items-center justify-center rounded-lg bg-gray-100 text-body-soft">
                     <Icon name="image" size={20} />
                   </div>
                 )}
-                <figcaption className="mt-1 text-xs text-body-soft">{f.etiqueta}</figcaption>
+                <figcaption className="mt-1 flex items-center justify-between gap-1 text-xs text-body-soft">
+                  {f.etiqueta}
+                  <RevisionBadge revision={f.revision} />
+                </figcaption>
                 {f.tomada_el && (
                   <p
                     className={cx(
@@ -88,6 +123,23 @@ function Galeria({
           })}
         </div>
       )}
+
+      {abierta?.url && (
+        <Visor
+          url={abierta.url}
+          titulo={abierta.etiqueta}
+          revision={abierta.revision}
+          onAprobar={async () => {
+            await aprobarFoto(datosFoto(abierta))
+            onRevisada()
+          }}
+          onRechazar={async (motivo) => {
+            await rechazarFoto(datosFoto(abierta), motivo)
+            onRevisada()
+          }}
+          onCerrar={() => setAbierta(null)}
+        />
+      )}
     </Panel>
   )
 }
@@ -95,6 +147,7 @@ function Galeria({
 function Detalle({ id, onCerrar }: { id: string; onCerrar: () => void }) {
   const [datos, setDatos] = useState<DetalleTurno | null>(null)
   const [cargando, setCargando] = useState(true)
+  const [version, setVersion] = useState(0)
 
   useEffect(() => {
     setCargando(true)
@@ -102,7 +155,7 @@ function Detalle({ id, onCerrar }: { id: string; onCerrar: () => void }) {
       setDatos(d)
       setCargando(false)
     })
-  }, [id])
+  }, [id, version])
 
   const fallas = datos?.items.filter((i) => i.estado === 'no_ok') ?? []
 
@@ -202,6 +255,8 @@ function Detalle({ id, onCerrar }: { id: string; onCerrar: () => void }) {
               fotos={datos.fotosApertura}
               referencia={datos.turno.entrada_el}
               vacio="Sin fotos de apertura."
+              turno={datos.turno}
+              onRevisada={() => setVersion((v) => v + 1)}
             />
 
             <Galeria
@@ -209,6 +264,8 @@ function Detalle({ id, onCerrar }: { id: string; onCerrar: () => void }) {
               fotos={datos.fotosCierre}
               referencia={datos.turno.salida_el}
               vacio="El chofer cerró el turno sin foto del tablero."
+              turno={datos.turno}
+              onRevisada={() => setVersion((v) => v + 1)}
             />
 
             {datos.firmaUrl && (
@@ -282,6 +339,9 @@ export function Turnos() {
             {turnos.map((t) => {
               const recorrido =
                 t.km_inicial != null && t.km_final != null ? t.km_final - t.km_inicial : null
+              // Más de 1 500 km en un turno (o negativo) es un dedazo en el
+              // odómetro, no un viaje: se marca para que se revise el detalle.
+              const kmSospechoso = recorrido != null && (recorrido > 1500 || recorrido < 0)
               return (
                 <tr
                   key={t.id}
@@ -293,7 +353,23 @@ export function Turnos() {
                   <Td>{t.unidad?.placa ?? '—'}</Td>
                   <Td className="tabular-nums">{clockTime(t.entrada_el)}</Td>
                   <Td className="tabular-nums">{clockTime(t.salida_el)}</Td>
-                  <Td className="tabular-nums">{recorrido != null ? km(recorrido) : '—'}</Td>
+                  <Td
+                    className={cx(
+                      'tabular-nums',
+                      kmSospechoso && 'font-semibold text-accent-600',
+                    )}
+                  >
+                    <span
+                      title={
+                        kmSospechoso
+                          ? 'Kilometraje sospechoso: revisá el km inicial y final del turno'
+                          : undefined
+                      }
+                    >
+                      {recorrido != null ? km(recorrido) : '—'}
+                      {kmSospechoso && ' ⚠'}
+                    </span>
+                  </Td>
                   <Td>
                     <Badge tone={t.estado === 'completado' ? 'success' : 'warn'}>
                       {t.estado === 'completado' ? 'Cerrado' : 'Abierto'}

@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { AdminShell } from './AdminShell'
 import { Resumen } from './pages/Resumen'
 import { Turnos } from './pages/Turnos'
+import { ReporteChofer } from './pages/ReporteChofer'
 import { Choferes } from './pages/Choferes'
 import { Unidades } from './pages/Unidades'
 import { Combustible } from './pages/Combustible'
@@ -22,6 +23,7 @@ export default function AdminApp() {
       <Routes>
         <Route path="/" element={<Resumen />} />
         <Route path="/turnos" element={<Turnos />} />
+        <Route path="/reporte" element={<ReporteChofer />} />
         <Route path="/choferes" element={<Choferes />} />
         <Route path="/unidades" element={<Unidades />} />
         <Route path="/combustible" element={<Combustible />} />

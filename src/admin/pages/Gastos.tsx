@@ -3,7 +3,13 @@ import { Badge, Input, Spinner } from '@/components/ui'
 import { Metric, PageTitle, Panel, Tabla, Td } from '../AdminShell'
 import { CeldaFoto } from '../CeldaFoto'
 import { money, shortDate, todayISO } from '@/lib/format'
-import { listarGastos, type GastoAdmin } from '../queries'
+import {
+  aprobarFoto,
+  listarGastos,
+  rechazarFoto,
+  type DatosFoto,
+  type GastoAdmin,
+} from '../queries'
 import type { TipoGasto } from '@/lib/database.types'
 
 function haceDias(dias: number) {
@@ -24,6 +30,7 @@ export function Gastos() {
   const [hasta, setHasta] = useState(todayISO())
   const [gastos, setGastos] = useState<GastoAdmin[]>([])
   const [cargando, setCargando] = useState(true)
+  const [version, setVersion] = useState(0)
 
   useEffect(() => {
     let vigente = true
@@ -36,7 +43,18 @@ export function Gastos() {
     return () => {
       vigente = false
     }
-  }, [desde, hasta])
+  }, [desde, hasta, version])
+
+  function datosTicket(g: GastoAdmin): DatosFoto {
+    return {
+      empresa_id: g.empresa_id,
+      chofer_id: g.chofer_id,
+      origen: 'gasto',
+      referencia_id: g.id,
+      etiqueta: `Ticket de ${ETIQUETA[g.tipo].label.toLowerCase()} del ${shortDate(g.fecha)}`,
+      ruta: g.ticket_ruta ?? '',
+    }
+  }
 
   const total = useMemo(() => gastos.reduce((s, g) => s + Number(g.monto), 0), [gastos])
 
@@ -154,6 +172,15 @@ export function Gastos() {
                     <CeldaFoto
                       url={g.ticket_url}
                       titulo={`Ticket de ${ETIQUETA[g.tipo].label.toLowerCase()} · ${g.chofer?.nombre ?? '—'} · ${shortDate(g.fecha)}`}
+                      revision={g.ticket_revision}
+                      onAprobar={async () => {
+                        await aprobarFoto(datosTicket(g))
+                        setVersion((v) => v + 1)
+                      }}
+                      onRechazar={async (motivo) => {
+                        await rechazarFoto(datosTicket(g), motivo)
+                        setVersion((v) => v + 1)
+                      }}
                     />
                   </Td>
                 </tr>

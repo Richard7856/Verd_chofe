@@ -228,6 +228,29 @@ export type AvisoChofer = {
   created_at: string
 }
 
+export type EstadoRevisionFoto = 'aprobada' | 'rechazada' | 'resubida'
+export type OrigenFoto = 'checklist' | 'combustible' | 'gasto'
+
+/**
+ * Revisión de una foto por el admin. La llave real es `ruta`: la re-subida
+ * escribe sobre el mismo objeto del bucket, así que nada más cambia.
+ */
+export type RevisionFoto = {
+  id: string
+  empresa_id: string
+  chofer_id: string
+  origen: OrigenFoto
+  referencia_id: string
+  etiqueta: string
+  ruta: string
+  estado: EstadoRevisionFoto
+  motivo: string | null
+  revisada_por: string | null
+  revisada_el: string
+  resubida_el: string | null
+  created_at: string
+}
+
 type Tabla<T> = {
   Row: T
   Insert: Partial<T>
@@ -253,6 +276,7 @@ export type Database = {
       incidencias_chofer: Tabla<IncidenciaChofer>
       avisos_chofer: Tabla<AvisoChofer>
       gastos_chofer: Tabla<GastoChofer>
+      revisiones_foto: Tabla<RevisionFoto>
     }
     Views: Record<string, never>
     Functions: Record<string, never>
