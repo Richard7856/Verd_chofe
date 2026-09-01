@@ -156,11 +156,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       password,
     })
     if (signInError) {
-      throw new Error(
-        signInError.message === 'Invalid login credentials'
-          ? 'Correo o contraseña incorrectos.'
-          : signInError.message,
-      )
+      const mensaje = signInError.message
+      if (mensaje === 'Invalid login credentials') {
+        throw new Error('Correo o contraseña incorrectos.')
+      }
+      // El admin bloqueó la cuenta desde el panel (ban en auth).
+      if (mensaje.toLowerCase().includes('banned')) {
+        throw new Error('Tu acceso está bloqueado. Consultá con tu supervisor.')
+      }
+      throw new Error(mensaje)
     }
   }, [])
 

@@ -59,9 +59,27 @@ export async function listarEmpresas(permitidas: string[] | null): Promise<Empre
   return todas.filter((e) => permitidas.includes(e.slug))
 }
 
-export async function listarChoferes(): Promise<Chofer[]> {
+export interface ChoferAdmin extends Chofer {
+  email: string | null
+}
+
+export async function listarChoferes(): Promise<ChoferAdmin[]> {
   const { data } = await supabase.from('choferes').select('*').order('nombre')
-  return data ?? []
+  const choferes = (data ?? []) as Chofer[]
+  if (choferes.length === 0) return []
+
+  // El correo vive en `profiles`: la política sólo le muestra al admin los
+  // perfiles de choferes de sus empresas, así que esto no abre nada de más.
+  const { data: perfiles } = await supabase
+    .from('profiles')
+    .select('id, email')
+    .in(
+      'id',
+      choferes.map((c) => c.user_id),
+    )
+
+  const emailPorUsuario = new Map((perfiles ?? []).map((p) => [p.id, p.email]))
+  return choferes.map((c) => ({ ...c, email: emailPorUsuario.get(c.user_id) ?? null }))
 }
 
 export async function listarUnidades(): Promise<Unidad[]> {
@@ -536,9 +554,20 @@ export async function cambiarActivoUnidad(id: string, activo: boolean) {
   if (error) throw new Error(error.message)
 }
 
-export async function cambiarActivoChofer(id: string, activo: boolean) {
-  const { error } = await supabase.from('choferes').update({ activo }).eq('id', id)
-  if (error) throw error
+/**
+ * Bloquea o desbloquea el acceso de un chofer. Va por la Edge Function porque
+ * además de `choferes.activo` aplica un ban en auth: se le cae la sesión que
+ * tenga abierta y no puede volver a iniciar sesión hasta desbloquearlo.
+ */
+export async function bloquearChofer(choferId: string, bloquear: boolean) {
+  const { data, error } = await supabase.functions.invoke('admin-choferes', {
+    body: { accion: bloquear ? 'bloquear' : 'desbloquear', chofer_id: choferId },
+  })
+  if (error) {
+    const detalle = await (error as { context?: Response }).context?.json?.().catch(() => null)
+    throw new Error(detalle?.error ?? error.message)
+  }
+  if (data?.error) throw new Error(data.error)
 }
 
 export async function actualizarChofer(

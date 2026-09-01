@@ -6,13 +6,14 @@ import { useAuth } from '@/context/AuthContext'
 import { shortDate } from '@/lib/format'
 import {
   actualizarChofer,
-  cambiarActivoChofer,
+  bloquearChofer,
   crearChofer,
   listarChoferes,
   listarEmpresas,
   restablecerPassword,
+  type ChoferAdmin,
 } from '../queries'
-import type { Chofer, Empresa } from '@/lib/database.types'
+import type { Empresa } from '@/lib/database.types'
 
 /** Contraseña inicial legible: el chofer la teclea en un celular, al sol. */
 function passwordSugerida() {
@@ -24,7 +25,7 @@ function passwordSugerida() {
 
 export function Choferes() {
   const { profile } = useAuth()
-  const [choferes, setChoferes] = useState<Chofer[]>([])
+  const [choferes, setChoferes] = useState<ChoferAdmin[]>([])
   const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [cargando, setCargando] = useState(true)
   const [creando, setCreando] = useState(false)
@@ -42,7 +43,7 @@ export function Choferes() {
   const [error, setError] = useState<string | null>(null)
   const [creado, setCreado] = useState<{ email: string; password: string } | null>(null)
 
-  const [editando, setEditando] = useState<Chofer | null>(null)
+  const [editando, setEditando] = useState<ChoferAdmin | null>(null)
   const [edicion, setEdicion] = useState({
     nombre: '',
     telefono: '',
@@ -50,7 +51,10 @@ export function Choferes() {
     licencia_vence_el: '',
   })
 
-  function abrirEdicion(c: Chofer) {
+  const [cambiandoPass, setCambiandoPass] = useState<ChoferAdmin | null>(null)
+  const [nuevaPass, setNuevaPass] = useState('')
+
+  function abrirEdicion(c: ChoferAdmin) {
     setEditando(c)
     setEdicion({
       nombre: c.nombre,
@@ -59,6 +63,15 @@ export function Choferes() {
       licencia_vence_el: c.licencia_vence_el ?? '',
     })
     setCreando(false)
+    setCambiandoPass(null)
+    setError(null)
+  }
+
+  function abrirCambioPassword(c: ChoferAdmin) {
+    setCambiandoPass(c)
+    setNuevaPass(passwordSugerida())
+    setCreando(false)
+    setEditando(null)
     setError(null)
   }
 
@@ -131,18 +144,36 @@ export function Choferes() {
     }
   }
 
-  async function alternarActivo(c: Chofer) {
-    await cambiarActivoChofer(c.id, !c.activo)
-    await refrescar()
+  async function alternarBloqueo(c: ChoferAdmin) {
+    if (
+      c.activo &&
+      !window.confirm(
+        `¿Bloquear el acceso de ${c.nombre}? Se le cierra la sesión y no podrá entrar hasta que lo desbloquees.`,
+      )
+    ) {
+      return
+    }
+    setError(null)
+    try {
+      await bloquearChofer(c.id, c.activo)
+      await refrescar()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo cambiar el acceso')
+    }
   }
 
-  async function nuevaPassword(c: Chofer) {
-    const nueva = passwordSugerida()
+  async function guardarPassword() {
+    if (!cambiandoPass) return
+    setGuardando(true)
+    setError(null)
     try {
-      await restablecerPassword(c.id, nueva)
-      setCreado({ email: c.nombre, password: nueva })
+      await restablecerPassword(cambiandoPass.id, nuevaPass)
+      setCreado({ email: cambiandoPass.email ?? cambiandoPass.nombre, password: nuevaPass })
+      setCambiandoPass(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo cambiar la contraseña')
+    } finally {
+      setGuardando(false)
     }
   }
 
@@ -156,7 +187,14 @@ export function Choferes() {
     <>
       <PageTitle
         action={
-          <Button block={false} onClick={() => setCreando((v) => !v)}>
+          <Button
+            block={false}
+            onClick={() => {
+              setCreando((v) => !v)
+              setEditando(null)
+              setCambiandoPass(null)
+            }}
+          >
             <Icon name={creando ? 'x' : 'plus'} size={17} />
             {creando ? 'Cancelar' : 'Nuevo chofer'}
           </Button>
@@ -200,6 +238,38 @@ export function Choferes() {
           <Icon name="alert" size={17} className="mt-0.5 shrink-0" />
           {error}
         </p>
+      )}
+
+      {cambiandoPass && (
+        <Panel title={`Cambiar contraseña · ${cambiandoPass.nombre}`} className="mb-5">
+          <div className="grid gap-4 p-4 sm:grid-cols-2">
+            <Field label="Usuario">
+              <Input value={cambiandoPass.email ?? '—'} readOnly disabled />
+            </Field>
+            <Field label="Contraseña nueva" hint="Mínimo 8 caracteres. Podés escribir la que quieras.">
+              <Input value={nuevaPass} onChange={(e) => setNuevaPass(e.target.value)} />
+            </Field>
+          </div>
+
+          <p className="px-4 pb-2 text-xs text-body-soft">
+            Al guardar, la contraseña anterior deja de servir. Pasale la nueva al chofer por un
+            medio seguro.
+          </p>
+
+          <div className="flex gap-2 border-t border-gray-100 px-4 py-3">
+            <Button
+              block={false}
+              loading={guardando}
+              disabled={nuevaPass.length < 8}
+              onClick={() => void guardarPassword()}
+            >
+              Cambiar contraseña
+            </Button>
+            <Button block={false} variant="ghost" onClick={() => setCambiandoPass(null)}>
+              Cancelar
+            </Button>
+          </div>
+        </Panel>
       )}
 
       {editando && (
@@ -334,15 +404,16 @@ export function Choferes() {
           <Spinner />
         ) : (
           <Tabla
-            columnas={['Chofer', 'Teléfono', 'Licencia', 'Vence', 'Estado', '']}
+            columnas={['Chofer', 'Correo', 'Teléfono', 'Licencia', 'Vence', 'Acceso', '']}
             vacio="Todavía no hay choferes dados de alta."
           >
             {choferes.map((c) => {
               const vencida =
                 c.licencia_vence_el != null && new Date(c.licencia_vence_el) < new Date()
               return (
-                <tr key={c.id}>
+                <tr key={c.id} className={cx(!c.activo && 'opacity-60')}>
                   <Td className="font-medium text-ink">{c.nombre}</Td>
+                  <Td className="font-mono text-xs">{c.email ?? '—'}</Td>
                   <Td>{c.telefono || '—'}</Td>
                   <Td>{c.licencia_numero || '—'}</Td>
                   <Td>
@@ -352,8 +423,8 @@ export function Choferes() {
                     </span>
                   </Td>
                   <Td>
-                    <Badge tone={c.activo ? 'success' : 'neutral'}>
-                      {c.activo ? 'Activo' : 'Inactivo'}
+                    <Badge tone={c.activo ? 'success' : 'danger'}>
+                      {c.activo ? 'Activo' : 'Bloqueado'}
                     </Badge>
                   </Td>
                   <Td>
@@ -367,20 +438,20 @@ export function Choferes() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => void nuevaPassword(c)}
+                        onClick={() => abrirCambioPassword(c)}
                         className="text-xs font-semibold text-brand-600 hover:underline"
                       >
                         Contraseña
                       </button>
                       <button
                         type="button"
-                        onClick={() => void alternarActivo(c)}
+                        onClick={() => void alternarBloqueo(c)}
                         className={cx(
                           'text-xs font-semibold hover:underline',
-                          c.activo ? 'text-[--color-danger]' : 'text-body-soft',
+                          c.activo ? 'text-[--color-danger]' : 'text-brand-600',
                         )}
                       >
-                        {c.activo ? 'Desactivar' : 'Activar'}
+                        {c.activo ? 'Bloquear' : 'Desbloquear'}
                       </button>
                     </div>
                   </Td>

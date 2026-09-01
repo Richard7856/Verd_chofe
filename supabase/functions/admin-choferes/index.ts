@@ -69,6 +69,21 @@ Deno.serve(async (req) => {
 
   const accion = String(cuerpo.accion ?? '')
 
+  /**
+   * Un admin acotado a ciertas empresas no puede tocar choferes de otra.
+   * Sin esta comprobación bastaba con conocer el id del chofer.
+   */
+  async function empresaPermitida(empresaId: string): Promise<boolean> {
+    const permitidas = perfil!.empresas_permitidas as string[] | null
+    if (permitidas === null) return true
+    const { data: empresa } = await admin
+      .from('empresas')
+      .select('slug')
+      .eq('id', empresaId)
+      .maybeSingle()
+    return Boolean(empresa && permitidas.includes(empresa.slug))
+  }
+
   // ------------------------------------------------------------- alta
   if (accion === 'crear') {
     const email = String(cuerpo.email ?? '').trim().toLowerCase()
@@ -85,16 +100,8 @@ Deno.serve(async (req) => {
     if (!empresaId) return responder({ error: 'Falta la empresa' }, 400)
 
     // Un admin sólo da de alta en sus propias empresas.
-    const permitidas = perfil.empresas_permitidas as string[] | null
-    if (permitidas !== null) {
-      const { data: empresa } = await admin
-        .from('empresas')
-        .select('slug')
-        .eq('id', empresaId)
-        .maybeSingle()
-      if (!empresa || !permitidas.includes(empresa.slug)) {
-        return responder({ error: 'No podés dar de alta en esa empresa' }, 403)
-      }
+    if (!(await empresaPermitida(empresaId))) {
+      return responder({ error: 'No podés dar de alta en esa empresa' }, 403)
     }
 
     const { data: creado, error: errorAlta } = await admin.auth.admin.createUser({
@@ -161,22 +168,47 @@ Deno.serve(async (req) => {
       .maybeSingle()
     if (!chofer) return responder({ error: 'Chofer no encontrado' }, 404)
 
-    // Un admin acotado a ciertas empresas no puede tocar choferes de otra.
-    // Sin esta comprobación bastaba con conocer el id del chofer.
-    const permitidasReset = perfil.empresas_permitidas as string[] | null
-    if (permitidasReset !== null) {
-      const { data: empresaChofer } = await admin
-        .from('empresas')
-        .select('slug')
-        .eq('id', chofer.empresa_id)
-        .maybeSingle()
-      if (!empresaChofer || !permitidasReset.includes(empresaChofer.slug)) {
-        return responder({ error: 'Ese chofer no pertenece a tus empresas' }, 403)
-      }
+    if (!(await empresaPermitida(chofer.empresa_id))) {
+      return responder({ error: 'Ese chofer no pertenece a tus empresas' }, 403)
     }
 
     const { error } = await admin.auth.admin.updateUserById(chofer.user_id, { password })
     if (error) return responder({ error: error.message }, 400)
+
+    return responder({ ok: true })
+  }
+
+  // --------------------------------------------- bloquear / desbloquear
+  // Desactivar la fila de `choferes` ya le cierra la app (RLS y el gate de
+  // sesión), pero el usuario seguía pudiendo iniciar sesión. El ban de auth
+  // lo corta de raíz: invalida la sesión vigente y rechaza el login.
+  if (accion === 'bloquear' || accion === 'desbloquear') {
+    const choferId = String(cuerpo.chofer_id ?? '')
+
+    const { data: chofer } = await admin
+      .from('choferes')
+      .select('user_id, empresa_id')
+      .eq('id', choferId)
+      .maybeSingle()
+    if (!chofer) return responder({ error: 'Chofer no encontrado' }, 404)
+
+    if (!(await empresaPermitida(chofer.empresa_id))) {
+      return responder({ error: 'Ese chofer no pertenece a tus empresas' }, 403)
+    }
+
+    const bloquear = accion === 'bloquear'
+
+    const { error: errorBan } = await admin.auth.admin.updateUserById(chofer.user_id, {
+      // 100 años: no existe el ban indefinido en la API, esto es lo mismo.
+      ban_duration: bloquear ? '876000h' : 'none',
+    })
+    if (errorBan) return responder({ error: errorBan.message }, 400)
+
+    const { error: errorActivo } = await admin
+      .from('choferes')
+      .update({ activo: !bloquear })
+      .eq('id', choferId)
+    if (errorActivo) return responder({ error: errorActivo.message }, 400)
 
     return responder({ ok: true })
   }
