@@ -29,6 +29,9 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null)
 
+/** Cuánto se espera al servidor antes de darle una respuesta al chofer. */
+const TIMEOUT_LOGIN_MS = 20_000
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -151,10 +154,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [bootstrap])
 
   const signIn = useCallback(async (email: string, password: string) => {
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: email.trim().toLowerCase(),
-      password,
-    })
+    // Los choferes entran desde el patio, con una barra de señal. Si el
+    // request se queda colgado, el fetch de supabase-js no corta solo y el
+    // botón gira para siempre sin decir nada: el chofer no sabe si escribió
+    // mal la contraseña o si es la red. Con el corte, al menos sabe qué pasó.
+    const { error: signInError } = await Promise.race([
+      supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password,
+      }),
+      new Promise<never>((_, rechazar) =>
+        setTimeout(
+          () =>
+            rechazar(
+              new Error(
+                navigator.onLine
+                  ? 'El servidor no respondió. Revisá tu señal e intentá de nuevo.'
+                  : 'No tenés conexión. Conectate a internet para iniciar sesión.',
+              ),
+            ),
+          TIMEOUT_LOGIN_MS,
+        ),
+      ),
+    ])
     if (signInError) {
       const mensaje = signInError.message
       if (mensaje === 'Invalid login credentials') {
