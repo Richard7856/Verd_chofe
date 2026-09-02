@@ -34,6 +34,9 @@ export interface TurnoAdmin {
   ruta_turno: string | null
   observaciones: string | null
   firma_ruta: string | null
+  /** Lo cerró el sistema a las 23:59, no el chofer: cuenta como falta */
+  cierre_automatico: boolean
+  cerrado_automatico_el: string | null
   chofer_id: string
   unidad_id: string
   chofer: { nombre: string } | null
@@ -41,7 +44,7 @@ export interface TurnoAdmin {
 }
 
 const SELECT_TURNO =
-  'id, empresa_id, fecha, estado, entrada_el, salida_el, km_inicial, km_final, ruta_turno, observaciones, firma_ruta, chofer_id, unidad_id, chofer:choferes(nombre), unidad:unidades(placa, marca, modelo)'
+  'id, empresa_id, fecha, estado, entrada_el, salida_el, km_inicial, km_final, ruta_turno, observaciones, firma_ruta, cierre_automatico, cerrado_automatico_el, chofer_id, unidad_id, chofer:choferes(nombre), unidad:unidades(placa, marca, modelo)'
 
 /**
  * Empresas que este admin puede usar.
@@ -368,6 +371,7 @@ export interface TurnoReporte {
   estado: string
   km_inicial: number | null
   km_final: number | null
+  cierre_automatico: boolean
   unidad: { placa: string } | null
 }
 
@@ -404,7 +408,7 @@ export async function reporteChofer(choferId: string, desde: string, hasta: stri
   const [turnos, cargas, gastos, incidencias] = await Promise.all([
     supabase
       .from('checklists_unidad')
-      .select('id, fecha, estado, km_inicial, km_final, unidad:unidades(placa)')
+      .select('id, fecha, estado, km_inicial, km_final, cierre_automatico, unidad:unidades(placa)')
       .eq('chofer_id', choferId)
       .gte('fecha', desde)
       .lte('fecha', hasta)
@@ -628,6 +632,17 @@ export async function enviarAviso(datos: {
     })),
   )
   if (error) throw error
+}
+
+/**
+ * Cierra los turnos que quedaron abiertos, igual que la tarea de las 23:59.
+ * Está a mano para no tener que esperar al corte cuando ya se sabe que un
+ * chofer no va a cerrar.
+ */
+export async function cerrarTurnosVencidos(): Promise<number> {
+  const { data, error } = await supabase.rpc('cerrar_turnos_vencidos' as never)
+  if (error) throw error
+  return (data as unknown as number) ?? 0
 }
 
 /** Dispara a mano el recordatorio que normalmente corre solo cada mañana. */

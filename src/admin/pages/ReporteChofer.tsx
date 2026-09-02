@@ -88,6 +88,8 @@ export function ReporteChofer() {
       gastosExtra,
       rendimiento: litros > 0 ? kmTotal / litros : null,
       turnosCerrados: datos.turnos.filter((t) => t.estado === 'completado').length,
+      // Turnos que el chofer no cerró y cerró el sistema a las 11:59 p.m.
+      sinCerrar: datos.turnos.filter((t) => t.cierre_automatico).length,
     }
   }, [datos])
 
@@ -157,6 +159,16 @@ export function ReporteChofer() {
             <Metric label="Gastos extra" value={money(resumen.gastosExtra)} />
           </div>
 
+          {resumen.sinCerrar > 0 && (
+            <Panel className="border-[--color-danger]/40 bg-red-50/60">
+              <p className="p-4 text-sm font-semibold text-[--color-danger]">
+                {resumen.sinCerrar === 1
+                  ? '1 turno no lo cerró el chofer: lo cerró el sistema a las 11:59 p.m. y cuenta como falta.'
+                  : `${resumen.sinCerrar} turnos no los cerró el chofer: los cerró el sistema a las 11:59 p.m. y cuentan como faltas.`}
+              </p>
+            </Panel>
+          )}
+
           <Panel title={`Turnos (${datos.turnos.length})`}>
             <Tabla
               columnas={['Fecha', 'Unidad', 'Km inicial', 'Km final', 'Recorrido', 'Estado']}
@@ -184,9 +196,13 @@ export function ReporteChofer() {
                       </span>
                     </Td>
                     <Td>
-                      <Badge tone={t.estado === 'completado' ? 'success' : 'warn'}>
-                        {t.estado === 'completado' ? 'Cerrado' : 'Abierto'}
-                      </Badge>
+                      {t.cierre_automatico ? (
+                        <Badge tone="danger">Cerrado por sistema</Badge>
+                      ) : (
+                        <Badge tone={t.estado === 'completado' ? 'success' : 'warn'}>
+                          {t.estado === 'completado' ? 'Cerrado' : 'Abierto'}
+                        </Badge>
+                      )}
                     </Td>
                   </tr>
                 )

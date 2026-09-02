@@ -8,7 +8,12 @@ import {
   type ReactNode,
 } from 'react'
 import { supabase } from '@/lib/supabase'
-import { getChecklistDraft, saveDraft, type ChecklistDraft } from '@/lib/offline'
+import {
+  descartarChecklist,
+  getChecklistDraft,
+  saveDraft,
+  type ChecklistDraft,
+} from '@/lib/offline'
 import type { Unidad } from '@/lib/database.types'
 import { useAuth } from './AuthContext'
 import { useSync } from './SyncContext'
@@ -45,6 +50,24 @@ interface TurnoState {
 
 const TurnoContext = createContext<TurnoState | null>(null)
 
+/**
+ * ¿El servidor ya cerró este turno? Sin conexión no se puede saber, y ahí la
+ * respuesta tiene que ser "no": dar por cerrado un turno por no tener señal
+ * le borraría al chofer el trabajo del día.
+ */
+async function turnoYaCerrado(checklistId: string): Promise<boolean> {
+  if (!navigator.onLine) return false
+
+  const { data, error } = await supabase
+    .from('checklists_unidad')
+    .select('estado')
+    .eq('id', checklistId)
+    .maybeSingle()
+
+  if (error || !data) return false
+  return data.estado !== 'en_progreso'
+}
+
 export function TurnoProvider({ children }: { children: ReactNode }) {
   const { chofer } = useAuth()
   const { pending } = useSync()
@@ -72,11 +95,21 @@ export function TurnoProvider({ children }: { children: ReactNode }) {
 
     const local = await getChecklistDraft()
     if (local) {
-      setDraft(local)
-      setChecklistId(local.remoteId)
-      await cargarUnidad(local.vehicleId)
-      setCargando(false)
-      return
+      // El turno pudo cerrarse del lado del servidor mientras el borrador
+      // seguía en el teléfono: a las 23:59 se cierran solos los que el chofer
+      // no cerró. Si no se descarta acá, la app sigue creyendo que hay un
+      // turno en curso y el chofer no puede abrir el de hoy.
+      const cerradoEnServidor = local.remoteId ? await turnoYaCerrado(local.remoteId) : false
+
+      if (!cerradoEnServidor) {
+        setDraft(local)
+        setChecklistId(local.remoteId)
+        await cargarUnidad(local.vehicleId)
+        setCargando(false)
+        return
+      }
+
+      await descartarChecklist(local.clientUuid)
     }
 
     // Sin borrador local: puede haber un turno abierto en el servidor.

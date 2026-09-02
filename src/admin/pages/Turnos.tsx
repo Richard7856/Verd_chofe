@@ -175,6 +175,22 @@ function Detalle({ id, onCerrar }: { id: string; onCerrar: () => void }) {
           <Spinner />
         ) : (
           <div className="space-y-4 p-5">
+            {datos.turno.cierre_automatico && (
+              <Panel className="border-[--color-danger]/40 bg-red-50/60">
+                <div className="flex gap-3 p-4">
+                  <Icon name="alert" size={20} className="mt-0.5 shrink-0 text-[--color-danger]" />
+                  <div>
+                    <p className="font-bold text-[--color-danger]">Cerrado por el sistema</p>
+                    <p className="mt-1 text-sm text-body">
+                      El chofer no cerró este turno antes de las 11:59 p.m., así que se cerró
+                      solo el {shortDate(datos.turno.cerrado_automatico_el)}. No hay kilometraje
+                      final ni firma, y al chofer ya se le avisó que cuenta como falta.
+                    </p>
+                  </div>
+                </div>
+              </Panel>
+            )}
+
             <Panel title="Turno">
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 p-4 text-sm">
                 <div>
@@ -371,9 +387,15 @@ export function Turnos() {
                     </span>
                   </Td>
                   <Td>
-                    <Badge tone={t.estado === 'completado' ? 'success' : 'warn'}>
-                      {t.estado === 'completado' ? 'Cerrado' : 'Abierto'}
-                    </Badge>
+                    {t.cierre_automatico ? (
+                      <span title="El chofer no lo cerró: lo cerró el sistema a las 11:59 p.m.">
+                        <Badge tone="danger">Cerrado por sistema</Badge>
+                      </span>
+                    ) : (
+                      <Badge tone={t.estado === 'completado' ? 'success' : 'warn'}>
+                        {t.estado === 'completado' ? 'Cerrado' : 'Abierto'}
+                      </Badge>
+                    )}
                   </Td>
                   <Td className="text-right text-body-soft">
                     <Icon name="chevronRight" size={16} />

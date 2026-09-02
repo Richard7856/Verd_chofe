@@ -176,6 +176,20 @@ export async function getChecklistDraft(): Promise<ChecklistDraft | undefined> {
   return found?.kind === 'checklist' ? found : undefined
 }
 
+/**
+ * Borra un check list del teléfono: borrador, fotos y lo que quedara en la
+ * cola. Se usa cuando el servidor ya cerró ese turno (cierre automático de
+ * las 23:59) y el borrador local pasó a ser un fantasma que le impide al
+ * chofer abrir el turno del día siguiente.
+ */
+export async function descartarChecklist(clientUuid: string) {
+  const d = await db()
+  await d.delete('drafts', clientUuid)
+  await d.delete('outbox', outboxId(clientUuid, 'checklist_apertura'))
+  await d.delete('outbox', outboxId(clientUuid, 'checklist_cierre'))
+  await deletePhotosOf(clientUuid)
+}
+
 export async function deleteDraft(clientUuid: string) {
   const d = await db()
   const tx = d.transaction(['drafts', 'photos'], 'readwrite')

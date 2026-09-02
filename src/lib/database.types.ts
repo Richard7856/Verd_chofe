@@ -117,6 +117,9 @@ export type ChecklistUnidad = {
   firma_ruta: string | null
   firmado_el: string | null
   completado_el: string | null
+  /** Lo cerró el sistema a las 23:59 porque el chofer no lo cerró: cuenta como falta */
+  cierre_automatico: boolean
+  cerrado_automatico_el: string | null
   cliente_uuid: string
   created_at: string
   updated_at: string

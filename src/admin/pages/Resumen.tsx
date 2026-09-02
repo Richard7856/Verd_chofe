@@ -53,6 +53,8 @@ export function Resumen() {
 
   const abiertos = turnos.filter((t) => t.estado === 'en_progreso')
   const cerrados = turnos.filter((t) => t.estado === 'completado')
+  // Los cerró el sistema a las 11:59 p.m. porque el chofer no lo hizo.
+  const porSistema = turnos.filter((t) => t.cierre_automatico)
 
   return (
     <>
@@ -92,6 +94,26 @@ export function Resumen() {
               hint="abiertas o vistas"
             />
           </div>
+
+          {porSistema.length > 0 && (
+            <Panel className="border-[--color-danger]/40 bg-red-50/60">
+              <div className="flex gap-3 p-4">
+                <Icon name="alert" size={20} className="mt-0.5 shrink-0 text-[--color-danger]" />
+                <div>
+                  <p className="font-bold text-[--color-danger]">
+                    {porSistema.length === 1
+                      ? '1 turno lo cerró el sistema'
+                      : `${porSistema.length} turnos los cerró el sistema`}
+                  </p>
+                  <p className="mt-1 text-sm text-body">
+                    {porSistema.map((t) => t.chofer?.nombre ?? '—').join(', ')} no cerró su ruta
+                    antes de las 11:59 p.m. Quedó sin kilometraje final ni firma, y ya se le avisó
+                    que cuenta como falta.
+                  </p>
+                </div>
+              </div>
+            </Panel>
+          )}
 
           {/* Lo que el admin realmente viene a buscar: quién falta. */}
           <Panel
@@ -139,9 +161,13 @@ export function Resumen() {
                     <Td className="tabular-nums">{clockTime(t.salida_el)}</Td>
                     <Td className="tabular-nums">{recorrido != null ? km(recorrido) : '—'}</Td>
                     <Td>
-                      <Badge tone={t.estado === 'completado' ? 'success' : 'warn'}>
-                        {t.estado === 'completado' ? 'Cerrado' : 'Abierto'}
-                      </Badge>
+                      {t.cierre_automatico ? (
+                        <Badge tone="danger">Cerrado por sistema</Badge>
+                      ) : (
+                        <Badge tone={t.estado === 'completado' ? 'success' : 'warn'}>
+                          {t.estado === 'completado' ? 'Cerrado' : 'Abierto'}
+                        </Badge>
+                      )}
                     </Td>
                   </tr>
                 )
