@@ -3,6 +3,7 @@ import {
   deleteDraft,
   deletePhotosOf,
   dequeue,
+  esHuerfana,
   getDraft,
   getOutbox,
   getPhotos,
@@ -65,7 +66,13 @@ export async function flushOutbox(ctx: SyncContext): Promise<{ synced: number; f
   let failed = 0
 
   for (const entry of entries) {
-    if (entry.status === 'syncing') continue
+    // Una `syncing` reciente la está procesando otra pasada y saltarla evita
+    // subir dos veces. Una vieja quedó huérfana: la app murió a mitad del
+    // envío. Antes se saltaba igual y no se reintentaba NUNCA —y `pending`
+    // tampoco la contaba, así que el registro desaparecía en silencio y el
+    // turno se quedaba abierto. Reintentarla es seguro: todo el proceso es
+    // idempotente.
+    if (entry.status === 'syncing' && !esHuerfana(entry)) continue
 
     await markOutbox(entry.id, { status: 'syncing' })
     try {

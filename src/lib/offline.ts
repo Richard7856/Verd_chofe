@@ -234,9 +234,28 @@ export async function getOutbox(): Promise<OutboxEntry[]> {
   return (await db()).getAll('outbox')
 }
 
+/**
+ * Cuánto puede quedarse una entrada en `syncing` antes de darla por huérfana.
+ *
+ * `syncing` significa "hay una pasada procesándola ahora". Pero si la app se
+ * cierra a mitad del envío —el chofer bloquea el teléfono, Android mata la
+ * WebView, se corta la señal— nadie la vuelve a tocar: se queda `syncing`
+ * para siempre. Pasado este margen se asume que la pasada murió.
+ */
+export const SYNCING_HUERFANO_MS = 120_000
+
+export function esHuerfana(entrada: OutboxEntry): boolean {
+  if (entrada.status !== 'syncing') return false
+  return Date.now() - (entrada.lastAttemptAt ?? entrada.queuedAt) > SYNCING_HUERFANO_MS
+}
+
+/**
+ * Lo que falta por enviar. Las huérfanas cuentan: si no, un cierre que se
+ * cortó a mitad no aparece por ningún lado y el chofer cree que ya lo mandó.
+ */
 export async function getPendingCount() {
   const entries = await getOutbox()
-  return entries.filter((e) => e.status !== 'syncing').length
+  return entries.filter((e) => e.status !== 'syncing' || esHuerfana(e)).length
 }
 
 export async function markOutbox(id: string, patch: Partial<OutboxEntry>) {

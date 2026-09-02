@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { getOutbox } from '@/lib/offline'
+import { esHuerfana, getOutbox } from '@/lib/offline'
 import { flushOutbox } from '@/lib/sync'
 import { useAuth } from './AuthContext'
 
@@ -47,7 +47,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
   const refreshPending = useCallback(async () => {
     const entradas = await getOutbox()
-    setPending(entradas.filter((e) => e.status !== 'syncing').length)
+    // Las huérfanas cuentan como pendientes: son envíos que se cortaron y
+    // nadie estaba reintentando. Sin esto el aviso de "por enviar" no salía
+    // y el reintento periódico ni siquiera arrancaba (se apaga con pending 0).
+    setPending(entradas.filter((e) => e.status !== 'syncing' || esHuerfana(e)).length)
 
     const conError = entradas.filter((e) => e.status === 'failed')
     setFallidos(conError.length)
