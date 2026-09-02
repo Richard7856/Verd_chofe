@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -40,6 +41,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [unidad, setUnidad] = useState<Unidad | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  /** Quién está cargado ahora, para distinguir un login de un refresh de token. */
+  const usuarioActual = useRef<string | null>(null)
 
   const cargarUnidadAsignada = useCallback(async (choferId: string) => {
     const { data: asignacion } = await supabase
@@ -126,6 +129,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return
       }
 
+      // Al iniciar sesión la sesión existe al instante pero el perfil tarda un
+      // viaje al servidor. Sin volver a `loading`, ese hueco se renderiza con
+      // sesión y sin chofer ni admin, que es exactamente la forma de "tu
+      // usuario no está dado de alta": el chofer veía el error un parpadeo
+      // antes de entrar.
+      setLoading(true)
+
       try {
         await cargarContexto(nextSession.user.id)
       } catch (err) {
@@ -138,16 +148,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => bootstrap(data.session))
+    supabase.auth.getSession().then(({ data }) => {
+      usuarioActual.current = data.session?.user.id ?? null
+      void bootstrap(data.session)
+    })
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      // onAuthStateChange también se dispara al refrescar el token; recargar
-      // todo el contexto en cada refresh sería un ida y vuelta innecesario.
-      setSession((current) => {
-        if (current?.user.id === nextSession?.user?.id) return nextSession
-        void bootstrap(nextSession)
-        return nextSession
-      })
+      const siguiente = nextSession?.user?.id ?? null
+
+      // onAuthStateChange también se dispara al refrescar el token. Con el
+      // mismo usuario sólo se actualiza la sesión: recargar todo el contexto
+      // en cada refresh sería un ida y vuelta innecesario. El id vive en una
+      // ref y no en el estado para no disparar efectos desde un updater.
+      if (siguiente === usuarioActual.current) {
+        setSession(nextSession)
+        return
+      }
+
+      usuarioActual.current = siguiente
+      void bootstrap(nextSession)
     })
 
     return () => listener.subscription.unsubscribe()

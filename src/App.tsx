@@ -67,10 +67,15 @@ function AppChofer() {
 }
 
 function Gate() {
-  const { session, chofer, esAdmin, loading, error, signOut } = useAuth()
+  const { session, profile, chofer, esAdmin, loading, error, signOut } = useAuth()
 
   if (loading) return <Spinner label="Cargando…" />
   if (!session) return <Login />
+
+  // Hay sesión pero el perfil todavía no llegó y nada falló: sigue cargando.
+  // Sin esta guarda, ese instante cae en el caso de abajo y anuncia que la
+  // cuenta no sirve justo antes de entrar.
+  if (!profile && !error) return <Spinner label="Cargando tu cuenta…" />
 
   // El mismo usuario puede ser chofer, admin, o ninguno de los dos.
   if (error || (!chofer && !esAdmin)) {
