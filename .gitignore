@@ -45,6 +45,7 @@ android/app/src/main/assets/capacitor.plugins.json
 .gradle/
 *.keystore
 *.jks
+android/keystore.properties
 
 # Binarios compilados
 *.apk

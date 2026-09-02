@@ -95,14 +95,33 @@ Los choferes cargan el check list en el patio, donde muchas veces no hay señal.
 ## APK
 
 ```bash
-npm run android:sync
+npm run android:apk
 ```
 
-```bash
-npm run android:open
+Sale en `android/app/build/outputs/apk/release/app-release.apk`.
+
+Antes de compilar hacen falta dos archivos que **no se versionan**:
+
+| Archivo | Para qué |
+|---|---|
+| `.env` | La URL y la publishable key de Supabase. Sin esto el APK arranca en blanco: `supabase.ts` lanza si faltan. |
+| `android/keystore.properties` | Dónde está el `.jks` de firma y sus contraseñas. Sin esto el APK sale sin firmar y no se puede instalar. |
+
+`android/keystore.properties` lleva:
+
+```properties
+storeFile=/ruta/absoluta/verdfrut-choferes.jks
+storePassword=…
+keyAlias=verdfrut-choferes
+keyPassword=…
 ```
 
-Requiere Java y Android Studio (esta máquina no los tiene todavía).
+**Subí `versionCode` en `android/app/build.gradle` en cada entrega**: Android
+no instala encima si no sube. Va en 2 (`versionName` 1.1).
+
+La llave de firma se guarda fuera del repo. Perderla obliga a que todos los
+choferes desinstalen y reinstalen: Android sólo actualiza una app si la
+versión nueva lleva la misma firma.
 
 `applicationId` actual: `com.verdfrut.choferes`. **Conviene revisarlo**: la app
 sirve a cuatro empresas, no sólo a Verdfrut, y una vez distribuido el APK
