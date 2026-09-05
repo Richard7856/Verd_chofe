@@ -283,6 +283,38 @@ export async function listarGastos(desde: string, hasta: string): Promise<GastoA
   }))
 }
 
+/**
+ * Borra una carga o un gasto y todo lo que cuelga de él: el ticket en el
+ * bucket y su revisión. Se usa para los duplicados, que el chofer sube sin
+ * querer cuando la app tarda en confirmar y le vuelve a dar enviar.
+ *
+ * El registro va primero: si algo falla después, queda una foto suelta en el
+ * bucket —basura inofensiva— y no un movimiento sin su comprobante. Las
+ * políticas ya permitían el borrado al admin (`cargas_update` y
+ * `gastos_chofer_admin` son FOR ALL), así que no hizo falta tocar la base.
+ */
+async function eliminarMovimiento(
+  tabla: 'cargas_combustible' | 'gastos_chofer',
+  id: string,
+  ticketRuta: string | null,
+) {
+  const { error } = await supabase.from(tabla).delete().eq('id', id)
+  if (error) throw new Error(error.message)
+
+  if (ticketRuta) {
+    await supabase.storage.from(BUCKET_EVIDENCIAS).remove([ticketRuta])
+    await supabase.from('revisiones_foto').delete().eq('ruta', ticketRuta)
+  }
+}
+
+export function eliminarCarga(id: string, ticketRuta: string | null) {
+  return eliminarMovimiento('cargas_combustible', id, ticketRuta)
+}
+
+export function eliminarGasto(id: string, ticketRuta: string | null) {
+  return eliminarMovimiento('gastos_chofer', id, ticketRuta)
+}
+
 export interface IncidenciaAdmin extends IncidenciaChofer {
   chofer: { nombre: string } | null
   unidad: { placa: string } | null

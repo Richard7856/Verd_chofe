@@ -5,6 +5,7 @@ import { CeldaFoto } from '../CeldaFoto'
 import { money, shortDate, todayISO } from '@/lib/format'
 import {
   aprobarFoto,
+  eliminarGasto,
   listarGastos,
   rechazarFoto,
   type DatosFoto,
@@ -31,6 +32,7 @@ export function Gastos() {
   const [gastos, setGastos] = useState<GastoAdmin[]>([])
   const [cargando, setCargando] = useState(true)
   const [version, setVersion] = useState(0)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let vigente = true
@@ -44,6 +46,31 @@ export function Gastos() {
       vigente = false
     }
   }, [desde, hasta, version])
+
+  // Mismo chofer, día, tipo y monto: casi seguro lo mandó dos veces.
+  const duplicados = useMemo(() => {
+    const veces = new Map<string, number>()
+    for (const g of gastos) {
+      const clave = `${g.chofer_id}|${g.fecha}|${g.tipo}|${g.monto}`
+      veces.set(clave, (veces.get(clave) ?? 0) + 1)
+    }
+    return new Set([...veces.entries()].filter(([, n]) => n > 1).map(([k]) => k))
+  }, [gastos])
+
+  const esDuplicado = (g: GastoAdmin) =>
+    duplicados.has(`${g.chofer_id}|${g.fecha}|${g.tipo}|${g.monto}`)
+
+  async function borrar(g: GastoAdmin) {
+    const detalle = `${shortDate(g.fecha)} · ${g.chofer?.nombre ?? '—'} · ${ETIQUETA[g.tipo].label} · ${money(Number(g.monto))}`
+    if (!window.confirm(`¿Eliminar este gasto?\n\n${detalle}\n\nSe borra también su ticket. No se puede deshacer.`)) return
+    setError(null)
+    try {
+      await eliminarGasto(g.id, g.ticket_ruta)
+      setVersion((v) => v + 1)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo eliminar el gasto')
+    }
+  }
 
   function datosTicket(g: GastoAdmin): DatosFoto {
     return {
@@ -105,6 +132,10 @@ export function Gastos() {
         Gastos extra
       </PageTitle>
 
+      {error && (
+        <p className="mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-[--color-danger]">{error}</p>
+      )}
+
       {cargando ? (
         <Spinner />
       ) : (
@@ -154,12 +185,17 @@ export function Gastos() {
 
           <Panel title="Movimientos">
             <Tabla
-              columnas={['Fecha', 'Chofer', 'Unidad', 'Tipo', 'Detalle', 'Lugar', 'Monto', 'Ticket']}
+              columnas={['Fecha', 'Chofer', 'Unidad', 'Tipo', 'Detalle', 'Lugar', 'Monto', 'Ticket', '']}
               vacio="Sin gastos en el rango."
             >
               {gastos.map((g) => (
                 <tr key={g.id}>
-                  <Td className="whitespace-nowrap">{shortDate(g.fecha)}</Td>
+                  <Td className="whitespace-nowrap">
+                    <span className="flex items-center gap-2">
+                      {shortDate(g.fecha)}
+                      {esDuplicado(g) && <Badge tone="warn">Repetido</Badge>}
+                    </span>
+                  </Td>
                   <Td className="font-medium text-ink">{g.chofer?.nombre ?? '—'}</Td>
                   <Td className="font-mono">{g.unidad?.placa ?? '—'}</Td>
                   <Td>
@@ -182,6 +218,15 @@ export function Gastos() {
                         setVersion((v) => v + 1)
                       }}
                     />
+                  </Td>
+                  <Td>
+                    <button
+                      type="button"
+                      onClick={() => void borrar(g)}
+                      className="whitespace-nowrap text-xs font-semibold text-[--color-danger] hover:underline"
+                    >
+                      Eliminar
+                    </button>
                   </Td>
                 </tr>
               ))}

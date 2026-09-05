@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Input, Spinner } from '@/components/ui'
+import { Badge, Input, Spinner } from '@/components/ui'
 import { Metric, PageTitle, Panel, Tabla, Td } from '../AdminShell'
 import { CeldaFoto } from '../CeldaFoto'
 import { liters, money, shortDate, todayISO } from '@/lib/format'
 import {
   aprobarFoto,
+  eliminarCarga,
   listarCargas,
   rechazarFoto,
   type CargaAdmin,
@@ -23,6 +24,7 @@ export function Combustible() {
   const [cargas, setCargas] = useState<CargaAdmin[]>([])
   const [cargando, setCargando] = useState(true)
   const [version, setVersion] = useState(0)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let vigente = true
@@ -36,6 +38,32 @@ export function Combustible() {
       vigente = false
     }
   }, [desde, hasta, version])
+
+  // El chofer sube la misma carga dos veces cuando la app tarda en confirmar
+  // y le vuelve a dar enviar. Se marcan para que salten a la vista en vez de
+  // que alguien tenga que compararlas a ojo.
+  const duplicadas = useMemo(() => {
+    const veces = new Map<string, number>()
+    for (const c of cargas) {
+      const clave = `${c.chofer_id}|${c.fecha}|${c.total}`
+      veces.set(clave, (veces.get(clave) ?? 0) + 1)
+    }
+    return new Set([...veces.entries()].filter(([, n]) => n > 1).map(([k]) => k))
+  }, [cargas])
+
+  const esDuplicada = (c: CargaAdmin) => duplicadas.has(`${c.chofer_id}|${c.fecha}|${c.total}`)
+
+  async function borrar(c: CargaAdmin) {
+    const detalle = `${shortDate(c.fecha)} · ${c.chofer?.nombre ?? '—'} · ${money(Number(c.total))}`
+    if (!window.confirm(`¿Eliminar esta carga?\n\n${detalle}\n\nSe borra también su ticket. No se puede deshacer.`)) return
+    setError(null)
+    try {
+      await eliminarCarga(c.id, c.ticket_ruta)
+      setVersion((v) => v + 1)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo eliminar la carga')
+    }
+  }
 
   function datosTicket(c: CargaAdmin): DatosFoto {
     return {
@@ -94,6 +122,10 @@ export function Combustible() {
         Combustible
       </PageTitle>
 
+      {error && (
+        <p className="mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-[--color-danger]">{error}</p>
+      )}
+
       {cargando ? (
         <Spinner />
       ) : (
@@ -124,12 +156,17 @@ export function Combustible() {
 
           <Panel title="Cargas">
             <Tabla
-              columnas={['Fecha', 'Chofer', 'Unidad', 'Estación', 'Litros', '$/L', 'Total', 'Ticket']}
+              columnas={['Fecha', 'Chofer', 'Unidad', 'Estación', 'Litros', '$/L', 'Total', 'Ticket', '']}
               vacio="Sin cargas en el rango."
             >
               {cargas.map((c) => (
                 <tr key={c.id}>
-                  <Td className="whitespace-nowrap">{shortDate(c.fecha)}</Td>
+                  <Td className="whitespace-nowrap">
+                    <span className="flex items-center gap-2">
+                      {shortDate(c.fecha)}
+                      {esDuplicada(c) && <Badge tone="warn">Repetida</Badge>}
+                    </span>
+                  </Td>
                   <Td className="font-medium text-ink">{c.chofer?.nombre ?? '—'}</Td>
                   <Td className="font-mono">{c.unidad?.placa ?? '—'}</Td>
                   <Td>{c.estacion || '—'}</Td>
@@ -150,6 +187,15 @@ export function Combustible() {
                         setVersion((v) => v + 1)
                       }}
                     />
+                  </Td>
+                  <Td>
+                    <button
+                      type="button"
+                      onClick={() => void borrar(c)}
+                      className="whitespace-nowrap text-xs font-semibold text-[--color-danger] hover:underline"
+                    >
+                      Eliminar
+                    </button>
                   </Td>
                 </tr>
               ))}
