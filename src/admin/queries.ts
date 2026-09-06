@@ -395,6 +395,73 @@ export async function crearUnidad(datos: {
   if (error) throw error
 }
 
+// -------------------------------------------------- rutas de TripDrive
+
+/** Una ruta como la devuelve la API de socios. */
+export interface RutaTripDrive {
+  id: string
+  date: string
+  name: string
+  status: string
+  zone: { code: string; name: string } | null
+  vehicle: { plate: string; color: string | null } | null
+  driver: { name: string } | null
+  stops: number
+  /**
+   * La distancia del plan. Es el número a comparar: existe desde que la ruta
+   * se optimiza y es el que TripDrive le muestra al cliente.
+   */
+  km_planned: number | null
+  /**
+   * Suma de los puntos GPS del teléfono. NO es "el kilometraje real": si la
+   * app deja de grabar faltan tramos, y si el GPS salta sobran. Sólo sirve
+   * cuando `gps_quality` es 'ok'.
+   */
+  km_gps: number | null
+  gps_quality: 'ok' | 'unreliable' | 'no_data' | null
+  started_at: string | null
+  ended_at: string | null
+}
+
+/** Consulta las rutas por la Edge Function: la llave no puede vivir acá. */
+export async function rutasTripDrive(desde: string, hasta: string): Promise<RutaTripDrive[]> {
+  const { data, error } = await supabase.functions.invoke('tripdrive-rutas', {
+    body: { desde, hasta },
+  })
+
+  if (error) {
+    const detalle = await (error as { context?: Response }).context?.json?.().catch(() => null)
+    throw new Error(detalle?.error ?? error.message)
+  }
+  if (data?.error) throw new Error(data.error)
+
+  return (data?.routes ?? []) as RutaTripDrive[]
+}
+
+/** Turnos del rango con lo necesario para cruzarlos contra las rutas. */
+export async function turnosParaComparar(desde: string, hasta: string) {
+  const { data } = await supabase
+    .from('checklists_unidad')
+    .select(
+      'id, fecha, estado, km_inicial, km_final, cierre_automatico, chofer:choferes(nombre), unidad:unidades(placa, alias)',
+    )
+    .gte('fecha', desde)
+    .lte('fecha', hasta)
+    .order('fecha', { ascending: false })
+    .limit(500)
+
+  return (data ?? []) as unknown as Array<{
+    id: string
+    fecha: string
+    estado: string
+    km_inicial: number | null
+    km_final: number | null
+    cierre_automatico: boolean
+    chofer: { nombre: string } | null
+    unidad: { placa: string; alias: string | null } | null
+  }>
+}
+
 // -------------------------------------------------- reporte por chofer
 
 export interface TurnoReporte {
