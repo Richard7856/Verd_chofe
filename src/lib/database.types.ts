@@ -254,6 +254,24 @@ export type RevisionFoto = {
   created_at: string
 }
 
+/**
+ * Vínculo manual entre un turno y su ruta en TripDrive. Los dos sistemas no
+ * comparten identificadores, así que lo une una persona desde el panel.
+ */
+export type TurnoRutaTripDrive = {
+  id: string
+  empresa_id: string
+  checklist_id: string
+  ruta_id: string
+  ruta_fecha: string
+  ruta_nombre: string | null
+  ruta_placa: string | null
+  ruta_chofer: string | null
+  km_planned: number | null
+  vinculado_por: string | null
+  created_at: string
+}
+
 type Tabla<T> = {
   Row: T
   Insert: Partial<T>
@@ -280,6 +298,7 @@ export type Database = {
       avisos_chofer: Tabla<AvisoChofer>
       gastos_chofer: Tabla<GastoChofer>
       revisiones_foto: Tabla<RevisionFoto>
+      turno_rutas_tripdrive: Tabla<TurnoRutaTripDrive>
     }
     Views: Record<string, never>
     Functions: Record<string, never>

@@ -438,12 +438,72 @@ export async function rutasTripDrive(desde: string, hasta: string): Promise<Ruta
   return (data?.routes ?? []) as RutaTripDrive[]
 }
 
+/** Un turno vinculado a una ruta de TripDrive. */
+export interface VinculoRuta {
+  id: string
+  checklist_id: string
+  ruta_id: string
+  ruta_fecha: string
+  ruta_nombre: string | null
+  ruta_placa: string | null
+  ruta_chofer: string | null
+  km_planned: number | null
+}
+
+export async function vinculosDeRutas(desde: string, hasta: string): Promise<VinculoRuta[]> {
+  const { data } = await supabase
+    .from('turno_rutas_tripdrive')
+    .select('id, checklist_id, ruta_id, ruta_fecha, ruta_nombre, ruta_placa, ruta_chofer, km_planned')
+    .gte('ruta_fecha', desde)
+    .lte('ruta_fecha', hasta)
+
+  return (data ?? []) as unknown as VinculoRuta[]
+}
+
+/**
+ * Ata una ruta de TripDrive a un turno. Guarda una copia de lo que decía la
+ * ruta: la API puede re-optimizarla o no responder, y el histórico no debería
+ * depender de eso.
+ */
+export async function vincularRuta(
+  turno: { id: string; empresa_id: string },
+  ruta: RutaTripDrive,
+) {
+  const { data: sesion } = await supabase.auth.getUser()
+
+  const { error } = await supabase.from('turno_rutas_tripdrive').insert({
+    empresa_id: turno.empresa_id,
+    checklist_id: turno.id,
+    ruta_id: ruta.id,
+    ruta_fecha: ruta.date,
+    ruta_nombre: ruta.vehicle?.color ?? ruta.name,
+    ruta_placa: ruta.vehicle?.plate ?? null,
+    ruta_chofer: ruta.driver?.name ?? null,
+    km_planned: ruta.km_planned,
+    vinculado_por: sesion.user?.id ?? null,
+  })
+
+  if (error) {
+    // La ruta ya está atada a otro turno: el UNIQUE lo impide a propósito,
+    // porque si no se contaría dos veces.
+    if (error.code === '23505') {
+      throw new Error('Esa ruta ya está vinculada a otro turno.')
+    }
+    throw new Error(error.message)
+  }
+}
+
+export async function desvincularRuta(id: string) {
+  const { error } = await supabase.from('turno_rutas_tripdrive').delete().eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
 /** Turnos del rango con lo necesario para cruzarlos contra las rutas. */
 export async function turnosParaComparar(desde: string, hasta: string) {
   const { data } = await supabase
     .from('checklists_unidad')
     .select(
-      'id, fecha, estado, km_inicial, km_final, cierre_automatico, chofer:choferes(nombre), unidad:unidades(placa, alias)',
+      'id, empresa_id, fecha, estado, km_inicial, km_final, cierre_automatico, chofer:choferes(nombre), unidad:unidades(placa, alias)',
     )
     .gte('fecha', desde)
     .lte('fecha', hasta)
@@ -452,6 +512,7 @@ export async function turnosParaComparar(desde: string, hasta: string) {
 
   return (data ?? []) as unknown as Array<{
     id: string
+    empresa_id: string
     fecha: string
     estado: string
     km_inicial: number | null

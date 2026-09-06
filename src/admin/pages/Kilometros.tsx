@@ -1,19 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Badge, Input, Spinner } from '@/components/ui'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Badge, Button, Input, Select, Spinner } from '@/components/ui'
 import { Icon } from '@/components/Icons'
 import { Metric, PageTitle, Panel, Tabla, Td } from '../AdminShell'
 import { km, shortDate, todayISO } from '@/lib/format'
 import {
+  desvincularRuta,
   rutasTripDrive,
   turnosParaComparar,
+  vincularRuta,
+  vinculosDeRutas,
   type RutaTripDrive,
+  type VinculoRuta,
 } from '../queries'
-
-function haceDias(dias: number) {
-  const d = new Date()
-  d.setDate(d.getDate() - dias)
-  return d.toISOString().slice(0, 10)
-}
 
 /** Un turno con más de esto (o negativo) es un dedazo en el odómetro. */
 const KM_MAXIMO_CREIBLE = 1500
@@ -23,39 +21,10 @@ const TOLERANCIA_KM = 20
 
 type Turno = Awaited<ReturnType<typeof turnosParaComparar>>[number]
 
-/** Placas sin guiones ni espacios: cada sistema las escribe a su manera. */
-const normalizarPlaca = (v: string | null | undefined) =>
-  (v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '')
-
-/** Nombres comparables: sin acentos, sin dobles espacios, en minúsculas. */
-const palabrasDeNombre = (v: string | null | undefined) =>
-  (v ?? '')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((p) => p.length > 2)
-
-/**
- * ¿La ruta y el turno son del mismo viaje?
- *
- * Primero por placa, que es lo único con forma de identificador. Si no
- * coinciden —los dos sistemas se dieron de alta por separado y nada garantiza
- * que escriban igual la placa— se cae al nombre del chofer: se aceptan dos
- * palabras en común para tolerar que uno guarde "Erick Paredes" y el otro el
- * nombre completo.
- */
-function emparejan(turno: Turno, ruta: RutaTripDrive): boolean {
-  if (turno.fecha !== ruta.date) return false
-
-  const placaTurno = normalizarPlaca(turno.unidad?.placa)
-  const placaRuta = normalizarPlaca(ruta.vehicle?.plate)
-  if (placaTurno && placaRuta && placaTurno === placaRuta) return true
-
-  const a = palabrasDeNombre(turno.chofer?.nombre)
-  const b = palabrasDeNombre(ruta.driver?.name)
-  const comunes = a.filter((p) => b.includes(p))
-  return comunes.length >= 2
+function sumarDias(fecha: string, dias: number) {
+  const d = new Date(`${fecha}T12:00:00`)
+  d.setDate(d.getDate() + dias)
+  return d.toISOString().slice(0, 10)
 }
 
 /** Km del turno, o null si el odómetro no da un número creíble. */
@@ -66,193 +35,269 @@ function kmDelTurno(t: Turno): number | null {
   return recorrido
 }
 
-interface Fila {
-  turno: Turno
-  ruta: RutaTripDrive | null
-  kmNuestro: number | null
-  kmPlan: number | null
-  diferencia: number | null
-}
+/** Cómo se lee una ruta en un renglón: el color es lo que usa la operación. */
+const etiquetaRuta = (r: RutaTripDrive) => r.vehicle?.color ?? r.name
 
 /**
- * Compara los kilómetros que declara el chofer contra los que TripDrive
- * planeó para su ruta del día.
+ * Kilómetros del chofer contra el plan de ruta de TripDrive, día por día.
  *
- * Se compara contra `km_planned` y no contra `km_gps`: el GPS del teléfono
- * pierde tramos cuando la app deja de grabar y los infla cuando salta, así que
- * como vara de medir no sirve. El de GPS se muestra sólo de referencia y sólo
- * cuando TripDrive lo marca confiable.
+ * El cruce lo hace una persona: los dos sistemas se dieron de alta por
+ * separado y no comparten identificadores —TripDrive dice VFR-002 y "Chofer
+ * 1"; acá hay placas reales y nombres completos—, así que adivinarlo sólo
+ * produciría emparejamientos falsos. Una vez atada, la ruta queda guardada y
+ * no hay que volver a elegirla.
+ *
+ * Se compara contra `km_planned`, no contra `km_gps`: el GPS del teléfono
+ * pierde tramos cuando la app deja de grabar y los infla cuando salta.
  */
 export function Kilometros() {
-  const [desde, setDesde] = useState(haceDias(7))
-  const [hasta, setHasta] = useState(todayISO())
+  const [fecha, setFecha] = useState(todayISO())
   const [turnos, setTurnos] = useState<Turno[]>([])
   const [rutas, setRutas] = useState<RutaTripDrive[]>([])
+  const [vinculos, setVinculos] = useState<VinculoRuta[]>([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [ocupado, setOcupado] = useState<string | null>(null)
+  const [eleccion, setEleccion] = useState<Record<string, string>>({})
 
-  useEffect(() => {
-    let vigente = true
+  const cargar = useCallback(async () => {
     setCargando(true)
     setError(null)
-
-    Promise.all([turnosParaComparar(desde, hasta), rutasTripDrive(desde, hasta)])
-      .then(([t, r]) => {
-        if (!vigente) return
-        setTurnos(t)
-        setRutas(r)
-      })
-      .catch((err) => {
-        if (!vigente) return
-        setTurnos([])
-        setRutas([])
-        setError(err instanceof Error ? err.message : 'No se pudieron traer las rutas')
-      })
-      .finally(() => vigente && setCargando(false))
-
-    return () => {
-      vigente = false
+    try {
+      const [t, r, v] = await Promise.all([
+        turnosParaComparar(fecha, fecha),
+        rutasTripDrive(fecha, fecha),
+        vinculosDeRutas(fecha, fecha),
+      ])
+      setTurnos(t)
+      setRutas(r)
+      setVinculos(v)
+    } catch (err) {
+      setTurnos([])
+      setRutas([])
+      setVinculos([])
+      setError(err instanceof Error ? err.message : 'No se pudieron traer las rutas')
+    } finally {
+      setCargando(false)
     }
-  }, [desde, hasta])
+  }, [fecha])
 
-  const { filas, rutasSueltas, resumen } = useMemo(() => {
-    const usadas = new Set<string>()
+  useEffect(() => {
+    void cargar()
+  }, [cargar])
 
-    const filas: Fila[] = turnos.map((turno) => {
-      const ruta = rutas.find((r) => !usadas.has(r.id) && emparejan(turno, r)) ?? null
-      if (ruta) usadas.add(ruta.id)
+  const vinculoPorTurno = useMemo(
+    () => new Map(vinculos.map((v) => [v.checklist_id, v])),
+    [vinculos],
+  )
+  const rutaPorId = useMemo(() => new Map(rutas.map((r) => [r.id, r])), [rutas])
+  const rutasTomadas = useMemo(() => new Set(vinculos.map((v) => v.ruta_id)), [vinculos])
+  const rutasLibres = useMemo(
+    () => rutas.filter((r) => !rutasTomadas.has(r.id)),
+    [rutas, rutasTomadas],
+  )
 
-      const kmNuestro = kmDelTurno(turno)
-      const kmPlan = ruta?.km_planned ?? null
-      return {
-        turno,
-        ruta,
-        kmNuestro,
-        kmPlan,
-        diferencia: kmNuestro != null && kmPlan != null ? kmNuestro - kmPlan : null,
-      }
-    })
+  /** Km del plan: el de la API si sigue ahí, si no el guardado al vincular. */
+  function kmPlanDe(v: VinculoRuta): number | null {
+    return rutaPorId.get(v.ruta_id)?.km_planned ?? v.km_planned ?? null
+  }
 
-    const comparables = filas.filter((f) => f.diferencia != null)
-    const resumen = {
-      emparejados: filas.filter((f) => f.ruta).length,
-      comparables: comparables.length,
-      kmNuestro: comparables.reduce((s, f) => s + (f.kmNuestro ?? 0), 0),
-      kmPlan: comparables.reduce((s, f) => s + (f.kmPlan ?? 0), 0),
-      fueraDeTolerancia: comparables.filter((f) => Math.abs(f.diferencia!) > TOLERANCIA_KM).length,
+  const resumen = useMemo(() => {
+    let kmChofer = 0
+    let kmPlan = 0
+    let fuera = 0
+
+    for (const t of turnos) {
+      const v = vinculoPorTurno.get(t.id)
+      const propio = kmDelTurno(t)
+      const plan = v ? kmPlanDe(v) : null
+      if (propio == null || plan == null) continue
+      kmChofer += propio
+      kmPlan += plan
+      if (Math.abs(propio - plan) > TOLERANCIA_KM) fuera += 1
     }
 
-    return {
-      filas,
-      rutasSueltas: rutas.filter((r) => !usadas.has(r.id)),
-      resumen,
-    }
-  }, [turnos, rutas])
+    return { kmChofer, kmPlan, fuera, vinculados: vinculoPorTurno.size }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turnos, vinculoPorTurno, rutaPorId])
 
-  const diferenciaTotal = resumen.kmNuestro - resumen.kmPlan
+  async function atar(turno: Turno) {
+    const rutaId = eleccion[turno.id]
+    const ruta = rutaId ? rutaPorId.get(rutaId) : null
+    if (!ruta) return
+
+    setOcupado(turno.id)
+    setError(null)
+    try {
+      await vincularRuta({ id: turno.id, empresa_id: turno.empresa_id }, ruta)
+      setEleccion((e) => ({ ...e, [turno.id]: '' }))
+      await cargar()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo vincular la ruta')
+    } finally {
+      setOcupado(null)
+    }
+  }
+
+  async function soltar(v: VinculoRuta) {
+    setOcupado(v.checklist_id)
+    setError(null)
+    try {
+      await desvincularRuta(v.id)
+      await cargar()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo desvincular')
+    } finally {
+      setOcupado(null)
+    }
+  }
+
+  const diferencia = resumen.kmChofer - resumen.kmPlan
 
   return (
     <>
       <PageTitle
         action={
           <div className="flex items-center gap-2">
-            <div className="w-40">
-              <Input type="date" value={desde} max={hasta} onChange={(e) => setDesde(e.target.value)} />
-            </div>
-            <span className="text-body-soft">a</span>
-            <div className="w-40">
+            <Button block={false} variant="secondary" onClick={() => setFecha(sumarDias(fecha, -1))}>
+              <Icon name="arrowLeft" size={16} />
+            </Button>
+            <div className="w-44">
               <Input
                 type="date"
-                value={hasta}
-                min={desde}
+                icon="calendar"
+                value={fecha}
                 max={todayISO()}
-                onChange={(e) => setHasta(e.target.value)}
+                onChange={(e) => setFecha(e.target.value)}
               />
             </div>
+            <Button
+              block={false}
+              variant="secondary"
+              disabled={fecha >= todayISO()}
+              onClick={() => setFecha(sumarDias(fecha, 1))}
+            >
+              <Icon name="chevronRight" size={16} />
+            </Button>
           </div>
         }
       >
-        Kilómetros vs TripDrive
+        Km vs TripDrive
       </PageTitle>
 
-      {error ? (
-        <Panel className="border-[--color-danger]/40 bg-red-50/60">
-          <div className="flex gap-3 p-4">
-            <Icon name="alert" size={20} className="mt-0.5 shrink-0 text-[--color-danger]" />
-            <div>
-              <p className="font-bold text-[--color-danger]">No se pudieron traer las rutas</p>
-              <p className="mt-1 text-sm text-body">{error}</p>
-            </div>
-          </div>
-        </Panel>
-      ) : cargando ? (
+      {error && (
+        <p className="mb-4 flex items-start gap-2 rounded-xl bg-red-50 px-4 py-3 text-sm text-[--color-danger]">
+          <Icon name="alert" size={17} className="mt-0.5 shrink-0" />
+          {error}
+        </p>
+      )}
+
+      {cargando ? (
         <Spinner label="Consultando TripDrive…" />
       ) : (
         <div className="space-y-5">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-            <Metric label="Turnos" value={turnos.length} />
+            <Metric label="Turnos del día" value={turnos.length} />
             <Metric
-              label="Cruzados con ruta"
-              value={`${resumen.emparejados} / ${turnos.length}`}
-              tone={resumen.emparejados < turnos.length ? 'warn' : 'ok'}
+              label="Vinculados"
+              value={`${resumen.vinculados} / ${turnos.length}`}
+              tone={resumen.vinculados < turnos.length ? 'warn' : 'ok'}
+              hint={`${rutasLibres.length} ruta(s) sin usar`}
             />
-            <Metric label="Km del chofer" value={km(resumen.kmNuestro)} hint="odómetro declarado" />
+            <Metric label="Km del chofer" value={km(resumen.kmChofer)} hint="odómetro declarado" />
             <Metric label="Km del plan" value={km(resumen.kmPlan)} hint="TripDrive" />
             <Metric
               label="Diferencia"
-              value={`${diferenciaTotal >= 0 ? '+' : ''}${km(diferenciaTotal)}`}
-              tone={Math.abs(diferenciaTotal) > TOLERANCIA_KM * 2 ? 'warn' : 'ok'}
-              hint={`${resumen.fueraDeTolerancia} turno(s) fuera de ±${TOLERANCIA_KM} km`}
+              value={`${diferencia >= 0 ? '+' : ''}${km(diferencia)}`}
+              tone={resumen.fuera > 0 ? 'warn' : 'ok'}
+              hint={`${resumen.fuera} fuera de ±${TOLERANCIA_KM} km`}
             />
           </div>
 
-          <Panel title={`Turno por turno (${filas.length})`}>
+          <Panel title={`Turnos del ${shortDate(fecha)}`}>
             <Tabla
-              columnas={['Fecha', 'Chofer', 'Unidad', 'Ruta en TripDrive', 'Km chofer', 'Km plan', 'Diferencia']}
-              vacio="No hay turnos en el rango."
+              columnas={['Chofer', 'Unidad', 'Km chofer', 'Ruta de TripDrive', 'Km plan', 'Diferencia', '']}
+              vacio="Nadie abrió turno este día."
             >
-              {filas.map((f) => {
-                const fuera =
-                  f.diferencia != null && Math.abs(f.diferencia) > TOLERANCIA_KM
+              {turnos.map((t) => {
+                const v = vinculoPorTurno.get(t.id)
+                const propio = kmDelTurno(t)
+                const plan = v ? kmPlanDe(v) : null
+                const dif = propio != null && plan != null ? propio - plan : null
+                const fuera = dif != null && Math.abs(dif) > TOLERANCIA_KM
+
                 return (
-                  <tr key={f.turno.id}>
-                    <Td className="whitespace-nowrap">{shortDate(f.turno.fecha)}</Td>
-                    <Td className="font-medium text-ink">{f.turno.chofer?.nombre ?? '—'}</Td>
-                    <Td className="font-mono">{f.turno.unidad?.placa ?? '—'}</Td>
-                    <Td className="max-w-xs">
-                      {f.ruta ? (
-                        <span className="text-body">
-                          {f.ruta.vehicle?.color ?? f.ruta.zone?.name ?? f.ruta.name}
-                          <span className="block text-xs text-body-soft">
-                            {f.ruta.stops} paradas · {f.ruta.driver?.name ?? 'sin chofer'}
-                          </span>
-                        </span>
-                      ) : (
-                        <Badge tone="neutral">Sin ruta</Badge>
-                      )}
-                    </Td>
+                  <tr key={t.id}>
+                    <Td className="font-medium text-ink">{t.chofer?.nombre ?? '—'}</Td>
+                    <Td className="font-mono">{t.unidad?.placa ?? '—'}</Td>
                     <Td className="tabular-nums">
-                      {f.kmNuestro != null ? (
-                        km(f.kmNuestro)
+                      {propio != null ? (
+                        km(propio)
                       ) : (
                         <span
                           className="text-accent-600"
-                          title="El odómetro no da un número creíble o el turno no se cerró"
+                          title="Sin cerrar, o el odómetro no da un número creíble"
                         >
                           —
                         </span>
                       )}
                     </Td>
-                    <Td className="tabular-nums">{f.kmPlan != null ? km(f.kmPlan) : '—'}</Td>
+
+                    <Td className="min-w-[260px]">
+                      {v ? (
+                        <span className="text-body">
+                          {v.ruta_nombre ?? v.ruta_id}
+                          <span className="block text-xs text-body-soft">
+                            {v.ruta_placa ?? '—'} · {v.ruta_chofer ?? 'sin chofer'}
+                          </span>
+                        </span>
+                      ) : rutasLibres.length === 0 ? (
+                        <Badge tone="neutral">Sin rutas libres</Badge>
+                      ) : (
+                        <Select
+                          value={eleccion[t.id] ?? ''}
+                          onChange={(valor) => setEleccion((e) => ({ ...e, [t.id]: valor }))}
+                          options={[
+                            { value: '', label: 'Elegí una ruta…' },
+                            ...rutasLibres.map((r) => ({
+                              value: r.id,
+                              label: `${etiquetaRuta(r)} · ${r.vehicle?.plate ?? '—'} · ${
+                                r.driver?.name ?? 'sin chofer'
+                              } · ${r.km_planned ?? '?'} km`,
+                            })),
+                          ]}
+                        />
+                      )}
+                    </Td>
+
+                    <Td className="tabular-nums">{plan != null ? km(plan) : '—'}</Td>
                     <Td
-                      className={
-                        fuera ? 'font-semibold tabular-nums text-accent-600' : 'tabular-nums'
-                      }
+                      className={fuera ? 'font-semibold tabular-nums text-accent-600' : 'tabular-nums'}
                     >
-                      {f.diferencia != null
-                        ? `${f.diferencia >= 0 ? '+' : ''}${km(f.diferencia)}`
-                        : '—'}
+                      {dif != null ? `${dif >= 0 ? '+' : ''}${km(dif)}` : '—'}
                       {fuera && ' ⚠'}
+                    </Td>
+
+                    <Td className="text-right">
+                      {v ? (
+                        <button
+                          type="button"
+                          disabled={ocupado === t.id}
+                          onClick={() => void soltar(v)}
+                          className="whitespace-nowrap text-xs font-semibold text-body-soft hover:underline disabled:opacity-50"
+                        >
+                          Quitar
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={!eleccion[t.id] || ocupado === t.id}
+                          onClick={() => void atar(t)}
+                          className="whitespace-nowrap text-xs font-semibold text-brand-600 hover:underline disabled:opacity-40"
+                        >
+                          Vincular
+                        </button>
+                      )}
                     </Td>
                   </tr>
                 )
@@ -260,17 +305,16 @@ export function Kilometros() {
             </Tabla>
           </Panel>
 
-          {/* Una ruta sin turno es un día que el chofer no registró, o un
-              cruce que falló porque las placas no coinciden entre sistemas. */}
-          <Panel title={`Rutas de TripDrive sin turno (${rutasSueltas.length})`}>
+          {/* Lo que sobra de TripDrive: un día que nadie registró, una ruta de
+              otra flota, o simplemente que falta atarla. */}
+          <Panel title={`Rutas de TripDrive sin vincular (${rutasLibres.length})`}>
             <Tabla
-              columnas={['Fecha', 'Ruta', 'Chofer', 'Unidad', 'Paradas', 'Km plan']}
-              vacio="Todas las rutas del rango cruzaron con un turno."
+              columnas={['Ruta', 'Chofer', 'Unidad', 'Paradas', 'Km plan']}
+              vacio="Todas las rutas del día están vinculadas."
             >
-              {rutasSueltas.map((r) => (
+              {rutasLibres.map((r) => (
                 <tr key={r.id}>
-                  <Td className="whitespace-nowrap">{shortDate(r.date)}</Td>
-                  <Td className="max-w-xs text-body">{r.vehicle?.color ?? r.name}</Td>
+                  <Td className="max-w-xs text-body">{etiquetaRuta(r)}</Td>
                   <Td className="font-medium text-ink">{r.driver?.name ?? '—'}</Td>
                   <Td className="font-mono">{r.vehicle?.plate ?? '—'}</Td>
                   <Td className="tabular-nums">{r.stops}</Td>
