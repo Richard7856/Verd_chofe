@@ -47,6 +47,7 @@ export function Unidades() {
     modelo: '',
     anio: null as number | null,
     estado: 'disponible' as EstadoUnidad,
+    rendimiento_km_litro: null as number | null,
   })
 
   function abrirEdicion(u: Unidad) {
@@ -58,6 +59,7 @@ export function Unidades() {
       modelo: u.modelo ?? '',
       anio: u.anio,
       estado: u.estado,
+      rendimiento_km_litro: u.rendimiento_km_litro,
     })
     setCreando(false)
     setError(null)
@@ -75,6 +77,7 @@ export function Unidades() {
         modelo: edicion.modelo.trim() || null,
         anio: edicion.anio,
         estado: edicion.estado,
+        rendimiento_km_litro: edicion.rendimiento_km_litro,
       })
       setEditando(null)
       await refrescar()
@@ -231,6 +234,17 @@ export function Unidades() {
                 onChange={(v) => setEdicion({ ...edicion, anio: v })}
               />
             </Field>
+
+            <Field
+              label="Rendimiento (km/L)"
+              hint="Contra esto se compara el consumo al revisar el día."
+            >
+              <NumberField
+                placeholder="8"
+                value={edicion.rendimiento_km_litro}
+                onChange={(v) => setEdicion({ ...edicion, rendimiento_km_litro: v })}
+              />
+            </Field>
           </div>
 
           {/* La empresa no se cambia: los turnos, cargas y gastos de la unidad
@@ -321,7 +335,7 @@ export function Unidades() {
           <Spinner />
         ) : (
           <Tabla
-            columnas={['Placa', 'Alias', 'Marca / Modelo', 'Año', 'Estado', '']}
+            columnas={['Placa', 'Alias', 'Marca / Modelo', 'Año', 'km/L', 'Estado', '']}
             vacio="Todavía no hay unidades dadas de alta."
           >
             {unidades.map((u) => (
@@ -330,6 +344,7 @@ export function Unidades() {
                 <Td>{u.alias || '—'}</Td>
                 <Td>{[u.marca, u.modelo].filter(Boolean).join(' ') || '—'}</Td>
                 <Td className="tabular-nums">{u.anio ?? '—'}</Td>
+                <Td className="tabular-nums">{u.rendimiento_km_litro ?? '—'}</Td>
                 <Td>
                   {u.activo ? (
                     <Badge tone={ESTADOS[u.estado].tone}>{ESTADOS[u.estado].label}</Badge>

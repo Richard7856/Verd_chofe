@@ -5,6 +5,7 @@ import type {
   Chofer,
   Empresa,
   EstadoIncidencia,
+  EstadoRevision,
   EstadoUnidad,
   GastoChofer,
   IncidenciaChofer,
@@ -395,6 +396,106 @@ export async function crearUnidad(datos: {
   if (error) throw error
 }
 
+// -------------------------------------------------- revisión del gasto
+
+/**
+ * Aprueba o rechaza una carga o un gasto.
+ *
+ * Lo decide una persona y no una regla: entre lo que rinde una camioneta en
+ * el papel y lo que rinde en tráfico siempre hay diferencia, y ningún umbral
+ * acierta solo. El panel marca lo que se sale de rango; el admin resuelve.
+ */
+export async function revisarMovimiento(
+  tabla: 'cargas_combustible' | 'gastos_chofer',
+  id: string,
+  estado: 'aprobado' | 'rechazado' | 'pendiente',
+  nota?: string,
+) {
+  const { data: sesion } = await supabase.auth.getUser()
+
+  const { error } = await supabase
+    .from(tabla)
+    .update({
+      estado_revision: estado,
+      revisado_por: estado === 'pendiente' ? null : (sesion.user?.id ?? null),
+      revisado_el: estado === 'pendiente' ? null : new Date().toISOString(),
+      nota_revision: nota?.trim() || null,
+    })
+    .eq('id', id)
+
+  if (error) throw new Error(error.message)
+}
+
+export async function actualizarRendimiento(unidadId: string, kmPorLitro: number | null) {
+  const { error } = await supabase
+    .from('unidades')
+    .update({ rendimiento_km_litro: kmPorLitro })
+    .eq('id', unidadId)
+  if (error) throw new Error(error.message)
+}
+
+// -------------------------------------------------- el día completo
+
+export interface MovimientoDia {
+  id: string
+  tipo: 'combustible' | 'gasto'
+  etiqueta: string
+  monto: number
+  litros: number | null
+  estado_revision: EstadoRevision
+  ticket_url: string | null
+  ticket_ruta: string | null
+  chofer_id: string
+  checklist_id: string | null
+}
+
+/** Cargas y gastos de un día, en una sola lista y con su ticket firmado. */
+export async function movimientosDelDia(fecha: string): Promise<MovimientoDia[]> {
+  const [cargas, gastos] = await Promise.all([
+    supabase
+      .from('cargas_combustible')
+      .select('id, chofer_id, checklist_id, estacion, litros, total, ticket_ruta, estado_revision')
+      .eq('fecha', fecha),
+    supabase
+      .from('gastos_chofer')
+      .select('id, chofer_id, checklist_id, tipo, descripcion, monto, ticket_ruta, estado_revision')
+      .eq('fecha', fecha),
+  ])
+
+  const filas: MovimientoDia[] = [
+    ...((cargas.data ?? []) as never[]).map((c: Record<string, unknown>) => ({
+      id: c.id as string,
+      tipo: 'combustible' as const,
+      etiqueta: (c.estacion as string) || 'Combustible',
+      monto: Number(c.total),
+      litros: Number(c.litros),
+      estado_revision: c.estado_revision as EstadoRevision,
+      ticket_ruta: (c.ticket_ruta as string) ?? null,
+      ticket_url: null,
+      chofer_id: c.chofer_id as string,
+      checklist_id: (c.checklist_id as string) ?? null,
+    })),
+    ...((gastos.data ?? []) as never[]).map((g: Record<string, unknown>) => ({
+      id: g.id as string,
+      tipo: 'gasto' as const,
+      etiqueta: (g.descripcion as string) || (g.tipo as string),
+      monto: Number(g.monto),
+      litros: null,
+      estado_revision: g.estado_revision as EstadoRevision,
+      ticket_ruta: (g.ticket_ruta as string) ?? null,
+      ticket_url: null,
+      chofer_id: g.chofer_id as string,
+      checklist_id: (g.checklist_id as string) ?? null,
+    })),
+  ]
+
+  const urls = await firmarRutas(filas.map((f) => f.ticket_ruta).filter((r) => r != null))
+  return filas.map((f) => ({
+    ...f,
+    ticket_url: (f.ticket_ruta && urls.get(f.ticket_ruta)) || null,
+  }))
+}
+
 // -------------------------------------------------- rutas de TripDrive
 
 /** Una ruta como la devuelve la API de socios. */
@@ -503,7 +604,7 @@ export async function turnosParaComparar(desde: string, hasta: string) {
   const { data } = await supabase
     .from('checklists_unidad')
     .select(
-      'id, empresa_id, fecha, estado, km_inicial, km_final, cierre_automatico, chofer:choferes(nombre), unidad:unidades(placa, alias)',
+      'id, empresa_id, chofer_id, fecha, estado, km_inicial, km_final, cierre_automatico, chofer:choferes(nombre), unidad:unidades(placa, alias, rendimiento_km_litro)',
     )
     .gte('fecha', desde)
     .lte('fecha', hasta)
@@ -513,13 +614,14 @@ export async function turnosParaComparar(desde: string, hasta: string) {
   return (data ?? []) as unknown as Array<{
     id: string
     empresa_id: string
+    chofer_id: string
     fecha: string
     estado: string
     km_inicial: number | null
     km_final: number | null
     cierre_automatico: boolean
     chofer: { nombre: string } | null
-    unidad: { placa: string; alias: string | null } | null
+    unidad: { placa: string; alias: string | null; rendimiento_km_litro: number | null } | null
   }>
 }
 
@@ -689,6 +791,7 @@ export async function actualizarUnidad(
     modelo: string | null
     anio: number | null
     estado: EstadoUnidad
+    rendimiento_km_litro: number | null
   },
 ) {
   const { error } = await supabase.from('unidades').update(datos).eq('id', id)

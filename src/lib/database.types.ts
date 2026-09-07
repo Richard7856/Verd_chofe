@@ -63,6 +63,8 @@ export type Unidad = {
   estado: EstadoUnidad
   activo: boolean
   notas: string | null
+  /** Km por litro que se espera de esta unidad; contra esto se mide el consumo. */
+  rendimiento_km_litro: number | null
 }
 
 export type ChoferUnidadAsignacion = {
@@ -147,6 +149,10 @@ export type ChecklistUnidadFoto = {
 }
 
 export type CargaCombustible = {
+  estado_revision: EstadoRevision
+  revisado_por: string | null
+  revisado_el: string | null
+  nota_revision: string | null
   id: string
   empresa_id: string
   chofer_id: string
@@ -194,6 +200,10 @@ export type IncidenciaChofer = {
 export type TipoGasto = 'aceite' | 'anticongelante' | 'ponchadura' | 'otro'
 
 export type GastoChofer = {
+  estado_revision: EstadoRevision
+  revisado_por: string | null
+  revisado_el: string | null
+  nota_revision: string | null
   id: string
   empresa_id: string
   chofer_id: string
@@ -230,6 +240,8 @@ export type AvisoChofer = {
   leido_el: string | null
   created_at: string
 }
+
+export type EstadoRevision = 'pendiente' | 'aprobado' | 'rechazado'
 
 export type EstadoRevisionFoto = 'aprobada' | 'rechazada' | 'resubida'
 export type OrigenFoto = 'checklist' | 'combustible' | 'gasto'

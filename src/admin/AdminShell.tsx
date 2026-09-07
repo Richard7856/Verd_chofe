@@ -8,7 +8,7 @@ const SECCIONES: Array<{ to: string; label: string; icon: IconName }> = [
   { to: '/admin', label: 'Resumen', icon: 'home' },
   { to: '/admin/turnos', label: 'Turnos', icon: 'clipboard' },
   { to: '/admin/reporte', label: 'Reporte por chofer', icon: 'gauge' },
-  { to: '/admin/kilometros', label: 'Km vs TripDrive', icon: 'mapPin' },
+  { to: '/admin/kilometros', label: 'Revisión del día', icon: 'mapPin' },
   { to: '/admin/choferes', label: 'Choferes', icon: 'user' },
   { to: '/admin/unidades', label: 'Unidades', icon: 'car' },
   { to: '/admin/combustible', label: 'Combustible', icon: 'fuel' },
@@ -199,11 +199,11 @@ export function Tabla({
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[600px] text-left text-sm">
+      <table className="w-full min-w-[600px] text-left text-[13px]">
         <thead>
           <tr className="border-b border-gray-100 text-xs uppercase tracking-wide text-body-soft">
             {columnas.map((c) => (
-              <th key={c} className="whitespace-nowrap px-4 py-2.5 font-semibold">
+              <th key={c} className="whitespace-nowrap px-3 py-2 font-semibold">
                 {c}
               </th>
             ))}
@@ -216,5 +216,5 @@ export function Tabla({
 }
 
 export function Td({ children, className }: { children: ReactNode; className?: string }) {
-  return <td className={cx('px-4 py-2.5 align-middle', className)}>{children}</td>
+  return <td className={cx('px-3 py-2 align-middle', className)}>{children}</td>
 }
