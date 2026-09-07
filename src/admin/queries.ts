@@ -3,6 +3,7 @@ import type {
   AvisoChofer,
   CargaCombustible,
   Chofer,
+  CombustibleCorte,
   Empresa,
   EstadoIncidencia,
   EstadoRevision,
@@ -432,6 +433,66 @@ export async function actualizarRendimiento(unidadId: string, kmPorLitro: number
     .update({ rendimiento_km_litro: kmPorLitro })
     .eq('id', unidadId)
   if (error) throw new Error(error.message)
+}
+
+// -------------------------------------------------- saldo del tanque
+
+export interface BalanceCombustible {
+  corte_fecha: string
+  corte_litros: number
+  rendimiento: number
+  litros_cargados: number
+  km_recorridos: number
+  litros_consumidos: number
+  saldo: number
+}
+
+/**
+ * Saldo teórico del tanque desde el último corte. Devuelve null si la unidad
+ * nunca se aforó: sin punto de partida no hay saldo, y uno inventado tendría
+ * apariencia de dato.
+ */
+export async function balanceCombustible(
+  unidadId: string,
+  hasta: string,
+): Promise<BalanceCombustible | null> {
+  const { data, error } = await supabase.rpc('balance_combustible' as never, {
+    p_unidad: unidadId,
+    p_hasta: hasta,
+  } as never)
+
+  if (error) throw new Error(error.message)
+  const filas = (data ?? []) as unknown as BalanceCombustible[]
+  return filas[0] ?? null
+}
+
+/**
+ * Registra una medición real del tanque. Guarda contra qué se comparó, para
+ * que la merma del periodo quede en el histórico y no haya que recalcularla.
+ */
+export async function registrarCorte(datos: {
+  empresa_id: string
+  unidad_id: string
+  fecha: string
+  litros: number
+  litros_teoricos: number | null
+  nota: string | null
+}) {
+  const { data: sesion } = await supabase.auth.getUser()
+  const { error } = await supabase
+    .from('combustible_cortes')
+    .insert({ ...datos, creado_por: sesion.user?.id ?? null })
+  if (error) throw new Error(error.message)
+}
+
+export async function cortesDeUnidad(unidadId: string): Promise<CombustibleCorte[]> {
+  const { data } = await supabase
+    .from('combustible_cortes')
+    .select('*')
+    .eq('unidad_id', unidadId)
+    .order('fecha', { ascending: false })
+    .limit(20)
+  return (data ?? []) as CombustibleCorte[]
 }
 
 // -------------------------------------------------- el día completo

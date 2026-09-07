@@ -3,6 +3,7 @@ import { Badge, Button, Input, Select, Spinner, cx } from '@/components/ui'
 import { Icon } from '@/components/Icons'
 import { Metric, PageTitle, Panel, Tabla, Td } from '../AdminShell'
 import { CeldaFoto } from '../CeldaFoto'
+import { PanelTanque } from '../PanelTanque'
 import { km, liters, money, shortDate, todayISO } from '@/lib/format'
 import {
   desvincularRuta,
@@ -479,6 +480,8 @@ export function Kilometros() {
               })}
             </Tabla>
           </Panel>
+
+          <PanelTanque fecha={fecha} />
 
           {rutasLibres.length > 0 && (
             <Panel title={`Rutas de TripDrive sin atar (${rutasLibres.length})`}>

@@ -284,6 +284,20 @@ export type TurnoRutaTripDrive = {
   created_at: string
 }
 
+/** Medición real del tanque de una unidad: el punto de partida del saldo. */
+export type CombustibleCorte = {
+  id: string
+  empresa_id: string
+  unidad_id: string
+  fecha: string
+  litros: number
+  /** Lo que el sistema creía que había: la diferencia es la merma del periodo. */
+  litros_teoricos: number | null
+  nota: string | null
+  creado_por: string | null
+  created_at: string
+}
+
 type Tabla<T> = {
   Row: T
   Insert: Partial<T>
@@ -311,6 +325,7 @@ export type Database = {
       gastos_chofer: Tabla<GastoChofer>
       revisiones_foto: Tabla<RevisionFoto>
       turno_rutas_tripdrive: Tabla<TurnoRutaTripDrive>
+      combustible_cortes: Tabla<CombustibleCorte>
     }
     Views: Record<string, never>
     Functions: Record<string, never>
