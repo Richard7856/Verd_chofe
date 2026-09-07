@@ -238,15 +238,19 @@ export function Kilometros() {
       ) : (
         <div className="space-y-4">
           <div className="grid grid-cols-3 gap-2.5 lg:grid-cols-6">
-            <Metric label="Turnos" value={turnos.length} />
             <Metric
-              label="Con ruta"
+              label="Turnos con ruta"
               value={`${resumen.vinculados}/${turnos.length}`}
               tone={resumen.vinculados < turnos.length ? 'warn' : 'ok'}
             />
-            <Metric label="Km del día" value={km(resumen.kmPropios)} />
             <Metric
-              label="Vs. plan"
+              label="Km sistema"
+              value={km(resumen.kmPropios)}
+              hint="odómetro del chofer"
+            />
+            <Metric label="Km TripDrive" value={km(resumen.kmPlan)} hint="plan de las rutas atadas" />
+            <Metric
+              label="Diferencia"
               value={`${difTotal >= 0 ? '+' : ''}${km(difTotal)}`}
               tone={Math.abs(difTotal) > TOLERANCIA_KM * 2 ? 'warn' : 'ok'}
               hint="sólo turnos con ruta"
@@ -262,7 +266,7 @@ export function Kilometros() {
 
           <Panel title={`Jornada del ${shortDate(fecha)}`}>
             <Tabla
-              columnas={['Chofer', 'Km', 'Ruta TripDrive', 'Dif.', 'Litros', 'Consumo', 'Gasto']}
+              columnas={['Chofer', 'Ruta TripDrive', 'Sistema', 'TripDrive', 'Dif.', 'Litros', 'Consumo', 'Gasto']}
               vacio="Nadie abrió turno este día."
             >
               {filas.map((f) => {
@@ -278,16 +282,6 @@ export function Kilometros() {
                         {t.unidad?.placa ?? '—'}
                         {t.cierre_automatico && ' · cerrado por sistema'}
                       </span>
-                    </Td>
-
-                    <Td className="tabular-nums">
-                      {f.kmPropios != null ? (
-                        km(f.kmPropios)
-                      ) : (
-                        <span className="text-accent-600" title="Sin cerrar o km no creíble">
-                          —
-                        </span>
-                      )}
                     </Td>
 
                     <Td className="min-w-[210px]">
@@ -345,6 +339,22 @@ export function Kilometros() {
                           </button>
                         </span>
                       )}
+                    </Td>
+
+                    {/* Los tres números juntos: lo que declaró el chofer, lo que
+                        planeó TripDrive y la diferencia. Separados no se comparan. */}
+                    <Td className="tabular-nums">
+                      {f.kmPropios != null ? (
+                        km(f.kmPropios)
+                      ) : (
+                        <span className="text-accent-600" title="Sin cerrar o km no creíble">
+                          —
+                        </span>
+                      )}
+                    </Td>
+
+                    <Td className="tabular-nums text-body">
+                      {f.kmPlan != null ? km(f.kmPlan) : '—'}
                     </Td>
 
                     <Td
