@@ -1307,3 +1307,96 @@ export async function resumenGeneral(desde: string, hasta: string): Promise<Resu
     porUnidad: cerrar(porUnidad),
   }
 }
+
+// ------------------------------------------------- avisos por Telegram
+
+export interface EstadoTelegram {
+  con_token: boolean
+  chat_id: string | null
+  activo: boolean
+  url_panel: string | null
+}
+
+export async function estadoTelegram(empresaId: string): Promise<EstadoTelegram> {
+  const { data, error } = await supabase.rpc('telegram_estado' as never, {
+    p_empresa: empresaId,
+  } as never)
+
+  if (error) throw new Error(error.message)
+  const filas = (data ?? []) as unknown as EstadoTelegram[]
+  return filas[0] ?? { con_token: false, chat_id: null, activo: false, url_panel: null }
+}
+
+/**
+ * Guarda chat y token. El token viaja una sola vez y se queda cifrado en
+ * Vault: mandar `null` conserva el que ya estaba, para poder cambiar el chat
+ * sin tener que ir a buscarlo de nuevo a BotFather.
+ */
+export async function guardarTelegram(datos: {
+  empresaId: string
+  chatId: string
+  token: string | null
+  activo: boolean
+}) {
+  const { error } = await supabase.rpc('telegram_guardar' as never, {
+    p_empresa: datos.empresaId,
+    p_chat_id: datos.chatId,
+    p_token: datos.token,
+    p_activo: datos.activo,
+  } as never)
+
+  if (error) throw new Error(error.message)
+}
+
+export async function probarTelegram(empresaId: string): Promise<number | null> {
+  const { data, error } = await supabase.rpc('telegram_probar' as never, {
+    p_empresa: empresaId,
+  } as never)
+
+  if (error) throw new Error(error.message)
+  return (data as unknown as number) ?? null
+}
+
+export async function detectarChatsTelegram(empresaId: string): Promise<number | null> {
+  const { data, error } = await supabase.rpc('telegram_detectar_chats' as never, {
+    p_empresa: empresaId,
+  } as never)
+
+  if (error) throw new Error(error.message)
+  return (data as unknown as number) ?? null
+}
+
+export interface RespuestaTelegram {
+  listo: boolean
+  status_code: number | null
+  contenido: string | null
+  error: string | null
+}
+
+/**
+ * pg_net es asincrónico: la llamada a Telegram se encola y la respuesta llega
+ * después. Esto es lo que el panel consulta hasta que aparece — sin ella,
+ * "enviar prueba" no podría decir si funcionó.
+ */
+export async function respuestaTelegram(id: number): Promise<RespuestaTelegram> {
+  const { data, error } = await supabase.rpc('telegram_respuesta' as never, {
+    p_id: id,
+  } as never)
+
+  if (error) throw new Error(error.message)
+  const filas = (data ?? []) as unknown as RespuestaTelegram[]
+  return filas[0] ?? { listo: false, status_code: null, contenido: null, error: null }
+}
+
+/** Espera a que pg_net traiga la respuesta, sin colgarse para siempre. */
+export async function esperarRespuestaTelegram(
+  id: number,
+  intentos = 12,
+): Promise<RespuestaTelegram> {
+  for (let i = 0; i < intentos; i++) {
+    const r = await respuestaTelegram(id)
+    if (r.listo) return r
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+  return { listo: false, status_code: null, contenido: null, error: 'Telegram no respondió a tiempo' }
+}

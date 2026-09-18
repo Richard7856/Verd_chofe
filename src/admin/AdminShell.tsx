@@ -20,6 +20,7 @@ const SECCIONES: Array<{ to: string; label: string; icon: IconName }> = [
   { to: '/admin/gastos', label: 'Gastos extra', icon: 'tool' },
   { to: '/admin/incidencias', label: 'Incidencias', icon: 'alert' },
   { to: '/admin/avisos', label: 'Avisos', icon: 'bell' },
+  { to: '/admin/notificaciones', label: 'Avisos por Telegram', icon: 'settings' },
 ]
 
 export function AdminShell({ children }: { children: ReactNode }) {
