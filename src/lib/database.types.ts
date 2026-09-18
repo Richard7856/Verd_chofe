@@ -166,6 +166,8 @@ export type CargaCombustible = {
   km: number | null
   folio: string | null
   ticket_ruta: string | null
+  /** Solicitud que autorizó esta carga. Nulo en las cargas previas al flujo de aprobación. */
+  solicitud_id: string | null
   lat: number | null
   lng: number | null
   cliente_uuid: string
@@ -298,6 +300,43 @@ export type CombustibleCorte = {
   created_at: string
 }
 
+export type EstadoSolicitud = 'pendiente' | 'aprobada' | 'rechazada' | 'cargada' | 'cancelada'
+
+/**
+ * Pedido de carga de combustible. El chofer lo manda ANTES de cargar; el
+ * admin autoriza (quizá menos litros de los pedidos) y recién entonces la app
+ * le deja subir el ticket.
+ *
+ * A diferencia del resto de la app, esto no funciona sin señal: es una
+ * conversación con una persona, no un registro que pueda esperar.
+ */
+export type SolicitudCombustible = {
+  id: string
+  empresa_id: string
+  chofer_id: string
+  unidad_id: string
+  checklist_id: string | null
+  fecha: string
+  litros: number | null
+  monto_estimado: number | null
+  estacion: string | null
+  km: number | null
+  motivo: string | null
+  lat: number | null
+  lng: number | null
+  estado: EstadoSolicitud
+  /** Lo que el admin dejó cargar. Contra esto se mide el ticket. */
+  litros_autorizados: number | null
+  monto_autorizado: number | null
+  resuelta_por: string | null
+  resuelta_el: string | null
+  /** Nota del admin al aprobar, o motivo del rechazo. */
+  nota: string | null
+  cargada_el: string | null
+  created_at: string
+  updated_at: string
+}
+
 type Tabla<T> = {
   Row: T
   Insert: Partial<T>
@@ -326,6 +365,7 @@ export type Database = {
       revisiones_foto: Tabla<RevisionFoto>
       turno_rutas_tripdrive: Tabla<TurnoRutaTripDrive>
       combustible_cortes: Tabla<CombustibleCorte>
+      solicitudes_combustible: Tabla<SolicitudCombustible>
     }
     Views: Record<string, never>
     Functions: Record<string, never>

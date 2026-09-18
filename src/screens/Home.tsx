@@ -6,6 +6,8 @@ import { supabase } from '@/lib/supabase'
 import { Badge, Card, EmptyState, cx } from '@/components/ui'
 import { Icon, type IconName } from '@/components/Icons'
 import { clockTime, km, shortDate, unidadLabel } from '@/lib/format'
+import { solicitudVigente } from '@/lib/solicitudes'
+import type { EstadoSolicitud } from '@/lib/database.types'
 
 interface RegistroReciente {
   id: string
@@ -70,6 +72,16 @@ export function Home() {
   const [recientes, setRecientes] = useState<RegistroReciente[]>([])
   const [loading, setLoading] = useState(true)
   const [fotosPorResubir, setFotosPorResubir] = useState(0)
+  const [estadoCarga, setEstadoCarga] = useState<EstadoSolicitud | null>(null)
+
+  // En qué punto está su solicitud de combustible: desde acá ya se ve si le
+  // aprobaron la carga sin tener que entrar a la pantalla.
+  useEffect(() => {
+    if (!chofer) return
+    void solicitudVigente(chofer.id)
+      .then((s) => setEstadoCarga(s?.estado ?? null))
+      .catch(() => setEstadoCarga(null))
+  }, [chofer])
 
   // Fotos que el supervisor rechazó: el chofer tiene que volver a tomarlas.
   useEffect(() => {
@@ -222,8 +234,17 @@ export function Home() {
 
         <Accion
           icon="fuel"
+          destacado={abierto && estadoCarga === 'aprobada'}
           titulo="Carga de combustible"
-          detalle={abierto ? 'Ticket, litros y precio' : 'Abrí tu turno para habilitarlo'}
+          detalle={
+            !abierto
+              ? 'Abrí tu turno para habilitarlo'
+              : estadoCarga === 'aprobada'
+                ? 'Aprobada — subí la foto del ticket'
+                : estadoCarga === 'pendiente'
+                  ? 'Esperando que te la autoricen'
+                  : 'Pedí autorización antes de cargar'
+          }
           bloqueado={!abierto}
           onClick={() => navigate('/combustible')}
         />

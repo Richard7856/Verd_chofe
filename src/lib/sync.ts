@@ -313,6 +313,9 @@ async function pushGasto(draft: GastoDraft, ctx: SyncContext) {
 async function pushCarga(draft: FuelDraft, ctx: SyncContext) {
   if (!draft.vehicleId) throw new Error('La carga no tiene unidad asignada')
   if (!draft.liters || !draft.pricePerLiter) throw new Error('Faltan litros o precio por litro')
+  // Un borrador sin solicitud quedó de la versión anterior de la app. Se
+  // manda igual: el chofer ya cargó y el ticket es el comprobante; el
+  // servidor sólo exige la solicitud cuando viene una.
 
   const fotos = await getPhotos(draft.clientUuid)
   const ticket = fotos.find((f) => f.slotCode === 'ticket')
@@ -340,6 +343,7 @@ async function pushCarga(draft: FuelDraft, ctx: SyncContext) {
       km: draft.odometer,
       folio: draft.folio,
       ticket_ruta: ticketRuta,
+      solicitud_id: draft.solicitudId,
       lat: draft.lat,
       lng: draft.lng,
       cliente_uuid: draft.clientUuid,

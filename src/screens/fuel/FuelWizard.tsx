@@ -1,69 +1,72 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { WizardHeader } from '@/components/AppShell'
-import { Stepper } from '@/components/Stepper'
-import { PhotoSlot } from '@/components/PhotoSlot'
-import { BlobImage } from '@/components/BlobImage'
 import { NumberField } from '@/components/NumberField'
-import { Button, Card, Field, Input, SectionTitle, Spinner } from '@/components/ui'
+import { Badge, Button, Card, Field, Input, SectionTitle, Spinner, TextArea } from '@/components/ui'
 import { Icon } from '@/components/Icons'
 import { useAuth } from '@/context/AuthContext'
 import { useTurno } from '@/context/TurnoContext'
 import { useSync } from '@/context/SyncContext'
 import { supabase } from '@/lib/supabase'
 import { currentCoords } from '@/lib/capture'
-import { liters as fmtLiters, money, shortDate, todayISO, unidadLabel } from '@/lib/format'
-import {
-  deletePhoto,
-  enqueue,
-  getActiveDraft,
-  getPhotos,
-  newClientUuid,
-  saveDraft,
-  savePhoto,
-  type FuelDraft,
-  type StoredPhoto,
-} from '@/lib/offline'
+import { clockTime, liters as fmtLiters, money } from '@/lib/format'
+import { cancelarSolicitud, crearSolicitud, solicitudVigente } from '@/lib/solicitudes'
+import type { SolicitudCombustible } from '@/lib/database.types'
+import { EvidenciaCarga } from './EvidenciaCarga'
 
-const STEPS = ['Ticket', 'Datos', 'Confirmar']
-
-function emptyDraft(vehicleId: string | null, checklistId: string | null): FuelDraft {
-  return {
-    clientUuid: newClientUuid(),
-    kind: 'fuel',
-    step: 0,
-    vehicleId,
-    checklistId,
-    loadedOn: todayISO(),
-    stationName: null,
-    liters: null,
-    pricePerLiter: null,
-    totalAmount: null,
-    odometer: null,
-    folio: null,
-    lat: null,
-    lng: null,
-    updatedAt: Date.now(),
-  }
-}
-
+/**
+ * Combustible, en tres tiempos: el chofer PIDE, el admin AUTORIZA y recién
+ * después se sube la evidencia.
+ *
+ * Antes se registraba la carga ya hecha y al panel le llegaba un gasto
+ * consumado. Ahora el permiso va adelante, así que esta pantalla es sobre
+ * todo un semáforo: según en qué estado esté la solicitud del chofer, muestra
+ * el formulario para pedir, la espera, el rechazo con su motivo, o el
+ * formulario del ticket.
+ */
 export function FuelWizard() {
   const navigate = useNavigate()
-  const { unidad, chofer } = useAuth()
-  const { sync, refreshPending, online, pending } = useSync()
+  const { chofer, unidad } = useAuth()
+  const { online } = useSync()
   const { abierto, cargando: turnoCargando, checklistId, draft: turno } = useTurno()
 
+  const [solicitud, setSolicitud] = useState<SolicitudCombustible | null>(null)
+  const [cargando, setCargando] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [estaciones, setEstaciones] = useState<string[]>([])
+  const [subiendo, setSubiendo] = useState(false)
+
   // La unidad sale del turno abierto, NO de la asignación del chofer: esa
-  // puede estar vacía y la carga moriría al enviarse. El turno siempre tiene
-  // unidad porque es obligatoria al abrirlo.
+  // puede estar vacía y la solicitud moriría al enviarse.
   const unidadDelTurno = turno?.vehicleId ?? unidad?.id ?? null
 
-  const [started, setStarted] = useState(false)
-  const [draft, setDraft] = useState<FuelDraft | null>(null)
-  const [ticket, setTicket] = useState<StoredPhoto | null>(null)
-  const [stations, setStations] = useState<string[]>([])
-  const [done, setDone] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
+  const recargar = useCallback(
+    async (silencioso = false) => {
+      if (!chofer) return
+      if (!silencioso) setCargando(true)
+      try {
+        setSolicitud(await solicitudVigente(chofer.id))
+        setError(null)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'No se pudo consultar tu solicitud')
+      } finally {
+        setCargando(false)
+      }
+    },
+    [chofer],
+  )
+
+  useEffect(() => {
+    void recargar()
+  }, [recargar])
+
+  // Mientras espera la respuesta, el chofer está parado en la gasolinera. El
+  // sondeo corto es lo que hace que no tenga que estar saliendo y entrando.
+  useEffect(() => {
+    if (solicitud?.estado !== 'pendiente') return
+    const id = setInterval(() => void recargar(true), 20_000)
+    return () => clearInterval(id)
+  }, [solicitud?.estado, recargar])
 
   // Estaciones que este chofer ya usó: evita tipear la misma cada vez.
   useEffect(() => {
@@ -76,344 +79,408 @@ export function FuelWizard() {
       .order('fecha', { ascending: false })
       .limit(30)
       .then(({ data }) => {
-        const unique = [...new Set((data ?? []).map((row) => row.estacion).filter(Boolean))]
-        setStations(unique as string[])
+        setEstaciones([...new Set((data ?? []).map((row) => row.estacion).filter(Boolean))] as string[])
       })
   }, [chofer])
 
-  const patch = useCallback((changes: Partial<FuelDraft>) => {
-    setDraft((current) => {
-      if (!current) return current
-      const next = { ...current, ...changes, updatedAt: Date.now() }
-      void saveDraft(next)
-      return next
-    })
-  }, [])
+  if (turnoCargando || cargando) return <Spinner label="Cargando…" />
+  if (!abierto) return <Navigate to="/" replace />
 
-  async function start() {
-    const existing = await getActiveDraft('fuel')
-
-    if (existing && existing.kind === 'fuel') {
-      setDraft(existing)
-      const photos = await getPhotos(existing.clientUuid)
-      setTicket(photos.find((p) => p.slotCode === 'ticket') ?? null)
-    } else {
-      const fresh = emptyDraft(unidadDelTurno, checklistId)
-      const coords = await currentCoords(5000)
-      fresh.lat = coords.lat
-      fresh.lng = coords.lng
-      await saveDraft(fresh)
-      setDraft(fresh)
-    }
-
-    setStarted(true)
-  }
-
-  async function captureTicket(blob: Blob) {
-    if (!draft) return
-    const coords = await currentCoords(4000)
-
-    const photo: StoredPhoto = {
-      key: `${draft.clientUuid}:ticket`,
-      clientUuid: draft.clientUuid,
-      slotCode: 'ticket',
-      label: 'Ticket de compra',
-      blob,
-      takenAt: new Date().toISOString(),
-      lat: coords.lat,
-      lng: coords.lng,
-    }
-
-    await savePhoto(photo)
-    setTicket(photo)
-  }
-
-  async function submit() {
-    if (!draft) return
-    setSubmitting(true)
-    try {
-      await enqueue(draft.clientUuid, 'fuel')
-      await refreshPending()
-      setDone(true)
-      void sync()
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  // La carga de combustible se habilita recién con el turno abierto: así el
-  // gasto queda siempre ligado a un turno y a un kilometraje conocidos.
-  if (turnoCargando) return <Spinner label="Cargando tu turno…" />
-  if (!abierto && !done) return <Navigate to="/" replace />
-
-  // ------------------------------------------------------------ portada
-  if (!started) {
+  // ------------------------------------------------- evidencia del ticket
+  if (solicitud?.estado === 'aprobada' && subiendo) {
     return (
-      <div className="min-h-dvh bg-surface-alt">
-        <WizardHeader title="Carga de Combustible" onBack={() => navigate('/')} />
-
-        <div className="p-4">
-        <SectionTitle hint="Registra la carga de combustible de forma rápida.">
-          Carga de Combustible
-        </SectionTitle>
-
-        <Card className="flex flex-col items-center gap-3 py-8 text-center">
-          <span className="flex h-20 w-20 items-center justify-center rounded-full bg-brand-50 text-brand-500">
-            <Icon name="fuel" size={38} />
-          </span>
-          <p className="text-sm text-body-soft">Tres pasos: ticket, datos y confirmación.</p>
-        </Card>
-
-        <ul className="mt-4 space-y-2.5">
-          {[
-            'Tené a mano el ticket de compra',
-            'Tomá una foto clara del ticket',
-            'Completá los datos y guardá el registro',
-          ].map((tip) => (
-            <li key={tip} className="flex items-center gap-2.5 text-sm text-body">
-              <Icon name="checkCircle" size={17} className="shrink-0 text-brand-500" />
-              {tip}
-            </li>
-          ))}
-        </ul>
-
-        <div className="mt-6">
-          <Button onClick={() => void start()}>Nueva Carga</Button>
-        </div>
-        </div>
-      </div>
+      <EvidenciaCarga
+        solicitud={solicitud}
+        estaciones={estaciones}
+        onListo={() => {
+          setSubiendo(false)
+          void recargar()
+        }}
+      />
     )
   }
-
-  if (!draft) return <Spinner label="Preparando…" />
-
-  // ------------------------------------------------------------ final
-  if (done) {
-    const queued = !online || pending > 0
-
-    return (
-      <div className="safe-top flex min-h-dvh flex-col justify-between p-4">
-        <div className="space-y-4 pt-8">
-          <div className="flex flex-col items-center gap-3 text-center">
-            <span className="flex h-20 w-20 items-center justify-center rounded-full bg-brand-500 text-white">
-              <Icon name="check" size={40} strokeWidth={2.5} />
-            </span>
-            <h1 className="text-[22px] font-extrabold text-ink">¡Carga registrada!</h1>
-            <p className="max-w-xs text-sm text-body-soft">
-              {queued
-                ? 'Se guardó en tu teléfono y se envía solo al recuperar señal.'
-                : 'El registro se guardó correctamente.'}
-            </p>
-          </div>
-
-          <Card>
-            <p className="mb-1 font-bold text-brand-600">Detalle del registro</p>
-            <div className="divide-y divide-gray-100">
-              <SummaryRow label="Fecha" value={shortDate(draft.loadedOn)} />
-              <SummaryRow label="Estación" value={draft.stationName || '—'} />
-              <SummaryRow label="Litros" value={fmtLiters(draft.liters)} />
-              <SummaryRow label="Total" value={money(draft.totalAmount)} />
-              <SummaryRow label="Unidad" value={unidadLabel(unidad)} />
-            </div>
-          </Card>
-        </div>
-
-        <div className="safe-bottom space-y-2 pt-6">
-          <Button onClick={() => navigate('/registros')}>Ver mis registros</Button>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              setDone(false)
-              setStarted(false)
-              setDraft(null)
-              setTicket(null)
-            }}
-          >
-            Nuevo registro
-          </Button>
-        </div>
-      </div>
-    )
-  }
-
-  const total =
-    draft.liters != null && draft.pricePerLiter != null ? draft.liters * draft.pricePerLiter : null
-
-  const dataComplete = draft.liters != null && draft.pricePerLiter != null && draft.liters > 0
 
   return (
-    <div className="flex min-h-dvh flex-col bg-surface-alt">
-      <WizardHeader title="Nueva Carga de Combustible" onBack={() => navigate('/')} />
-      <Stepper steps={STEPS} current={draft.step} onSelect={(index) => patch({ step: index })} />
+    <div className="min-h-dvh bg-surface-alt">
+      <WizardHeader title="Carga de combustible" onBack={() => navigate('/')} />
 
-      {/* ---------------------------------------------------- paso 1 */}
-      {draft.step === 0 && (
-        <>
-          <div className="flex-1 space-y-3 p-4">
-            <SectionTitle hint="Tomá una foto clara del ticket de compra.">
-              Foto del ticket
-            </SectionTitle>
+      <div className="space-y-4 p-4">
+        {error && (
+          <p className="flex items-start gap-2 rounded-xl bg-red-50 px-3.5 py-2.5 text-sm text-[--color-danger]">
+            <Icon name="alert" size={17} className="mt-0.5 shrink-0" />
+            {error}
+          </p>
+        )}
 
-            <div className="mx-auto max-w-[240px]">
-              <PhotoSlot
-                label="Ticket de compra"
-                blob={ticket?.blob ?? null}
-                onCapture={captureTicket}
-                onClear={async () => {
-                  await deletePhoto(`${draft.clientUuid}:ticket`)
-                  setTicket(null)
-                }}
-              />
-            </div>
-          </div>
+        {solicitud?.estado === 'aprobada' && (
+          <Aprobada solicitud={solicitud} onSubir={() => setSubiendo(true)} />
+        )}
 
-          <Footer
-            onNext={() => patch({ step: 1 })}
-            disabled={!ticket}
-            hint={!ticket ? 'Tomá la foto del ticket para continuar' : undefined}
+        {solicitud?.estado === 'pendiente' && (
+          <EnEspera
+            solicitud={solicitud}
+            online={online}
+            onRefrescar={() => void recargar()}
+            onCancelada={() => void recargar()}
+            onError={setError}
           />
-        </>
-      )}
+        )}
 
-      {/* ---------------------------------------------------- paso 2 */}
-      {draft.step === 1 && (
-        <>
-          <div className="flex-1 space-y-4 p-4">
-            <Field label="Fecha de carga">
-              <Input
-                icon="calendar"
-                type="date"
-                value={draft.loadedOn}
-                max={todayISO()}
-                onChange={(event) => patch({ loadedOn: event.target.value })}
-              />
-            </Field>
-
-            <Field label="Estación de servicio">
-              <Input
-                icon="mapPin"
-                list="estaciones"
-                placeholder="Shell - Sucursal Norte"
-                value={draft.stationName ?? ''}
-                onChange={(event) => patch({ stationName: event.target.value || null })}
-              />
-            </Field>
-            <datalist id="estaciones">
-              {stations.map((station) => (
-                <option key={station} value={station} />
-              ))}
-            </datalist>
-
-            <Field label="Litros cargados">
-              <NumberField
-                decimales
-                icon="droplet"
-                suffix="Lts"
-                placeholder="40.00"
-                value={draft.liters}
-                onChange={(value) => patch({ liters: value })}
-              />
-            </Field>
-
-            <Field label="Precio por litro">
-              <NumberField
-                decimales
-                icon="fuel"
-                suffix="$ / L"
-                placeholder="6.890"
-                value={draft.pricePerLiter}
-                onChange={(value) => patch({ pricePerLiter: value })}
-              />
-            </Field>
-
-            {/* El total se calcula: escribirlo a mano es una fuente de errores. */}
-            <Field label="Total" hint="Se calcula con litros × precio por litro.">
-              <Input readOnly suffix="$" value={total != null ? total.toFixed(2) : ''} />
-            </Field>
-
-            <Field label="Kilometraje (opcional)">
-              <NumberField
-                icon="gauge"
-                suffix="km"
-                placeholder="45230"
-                value={draft.odometer}
-                onChange={(value) => patch({ odometer: value })}
-              />
-            </Field>
-          </div>
-
-          <Footer
-            onNext={() => patch({ step: 2, totalAmount: total })}
-            disabled={!dataComplete}
-            hint={!dataComplete ? 'Completá litros y precio por litro' : undefined}
+        {(!solicitud || ['rechazada', 'cargada', 'cancelada'].includes(solicitud.estado)) && (
+          <Pedir
+            ultima={solicitud}
+            online={online}
+            estaciones={estaciones}
+            empresaId={chofer?.empresa_id ?? null}
+            choferId={chofer?.id ?? null}
+            unidadId={unidadDelTurno}
+            checklistId={checklistId}
+            onCreada={(nueva) => setSolicitud(nueva)}
+            onError={setError}
           />
-        </>
-      )}
-
-      {/* ---------------------------------------------------- paso 3 */}
-      {draft.step === 2 && (
-        <>
-          <div className="flex-1 space-y-3 p-4">
-            <SectionTitle>Resumen de la carga</SectionTitle>
-
-            <Card className="flex gap-3">
-              <BlobImage
-                blob={ticket?.blob ?? null}
-                alt="Ticket de compra"
-                className="h-28 w-20 shrink-0 rounded-lg object-cover"
-              />
-              <div className="min-w-0 flex-1 divide-y divide-gray-100">
-                <SummaryRow label="Fecha" value={shortDate(draft.loadedOn)} />
-                <SummaryRow label="Estación" value={draft.stationName || '—'} />
-                <SummaryRow label="Litros" value={fmtLiters(draft.liters)} />
-                <SummaryRow label="Precio / L" value={money(draft.pricePerLiter)} />
-                <SummaryRow label="Total" value={money(total)} />
-              </div>
-            </Card>
-
-            <Card>
-              <SummaryRow label="Unidad" value={unidadLabel(unidad)} />
-            </Card>
-          </div>
-
-          <div className="safe-bottom sticky bottom-0 space-y-2 border-t border-gray-100 bg-white px-4 py-3">
-            <Button variant="secondary" onClick={() => patch({ step: 1 })}>
-              Editar información
-            </Button>
-            <Button variant="success" loading={submitting} onClick={() => void submit()}>
-              Guardar registro
-            </Button>
-          </div>
-        </>
-      )}
+        )}
+      </div>
     </div>
   )
 }
 
-function SummaryRow({ label, value }: { label: string; value: string }) {
+// ------------------------------------------------------------- aprobada
+
+function Aprobada({
+  solicitud,
+  onSubir,
+}: {
+  solicitud: SolicitudCombustible
+  onSubir: () => void
+}) {
+  const autorizados = solicitud.litros_autorizados ?? solicitud.litros
+
+  return (
+    <>
+      <Card className="flex flex-col items-center gap-3 py-7 text-center">
+        <span className="flex h-16 w-16 items-center justify-center rounded-full bg-brand-50 text-brand-500">
+          <Icon name="checkCircle" size={32} />
+        </span>
+        <div>
+          <p className="text-[17px] font-extrabold text-ink">Carga autorizada</p>
+          <p className="mt-1 text-sm text-body-soft">
+            {autorizados != null
+              ? `Podés cargar hasta ${fmtLiters(autorizados)}.`
+              : 'Podés cargar.'}
+          </p>
+        </div>
+        {solicitud.estacion && (
+          <Badge tone="neutral">
+            <span className="inline-flex items-center gap-1">
+              <Icon name="mapPin" size={13} />
+              {solicitud.estacion}
+            </span>
+          </Badge>
+        )}
+      </Card>
+
+      {solicitud.nota && (
+        <Card>
+          <p className="text-xs font-semibold uppercase tracking-wide text-body-soft">
+            Nota del supervisor
+          </p>
+          <p className="mt-1 text-sm text-ink">{solicitud.nota}</p>
+        </Card>
+      )}
+
+      <ul className="space-y-2.5">
+        {[
+          'Cargá en la estación y pedí el ticket',
+          'Tomá la foto del ticket desde acá',
+          'Poné los litros y el precio tal cual salen impresos',
+        ].map((paso) => (
+          <li key={paso} className="flex items-center gap-2.5 text-sm text-body">
+            <Icon name="checkCircle" size={17} className="shrink-0 text-brand-500" />
+            {paso}
+          </li>
+        ))}
+      </ul>
+
+      <Button onClick={onSubir}>
+        <Icon name="camera" size={18} />
+        Subir evidencia del ticket
+      </Button>
+    </>
+  )
+}
+
+// -------------------------------------------------------------- en espera
+
+function EnEspera({
+  solicitud,
+  online,
+  onRefrescar,
+  onCancelada,
+  onError,
+}: {
+  solicitud: SolicitudCombustible
+  online: boolean
+  onRefrescar: () => void
+  onCancelada: () => void
+  onError: (mensaje: string) => void
+}) {
+  const [cancelando, setCancelando] = useState(false)
+
+  async function cancelar() {
+    if (!window.confirm('¿Cancelar tu solicitud de carga?')) return
+    setCancelando(true)
+    try {
+      await cancelarSolicitud(solicitud.id)
+      onCancelada()
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'No se pudo cancelar')
+    } finally {
+      setCancelando(false)
+    }
+  }
+
+  return (
+    <>
+      <Card className="flex flex-col items-center gap-3 py-7 text-center">
+        <span className="flex h-16 w-16 items-center justify-center rounded-full bg-orange-50 text-accent-600">
+          <Icon name="clock" size={30} />
+        </span>
+        <div>
+          <p className="text-[17px] font-extrabold text-ink">Esperando aprobación</p>
+          <p className="mt-1 max-w-xs text-sm text-body-soft">
+            Tu supervisor tiene que autorizar la carga. Te llega un aviso en cuanto responda.
+          </p>
+        </div>
+      </Card>
+
+      <Card>
+        <p className="mb-1 font-bold text-brand-600">Lo que pediste</p>
+        <div className="divide-y divide-gray-100">
+          <Dato label="Litros" valor={fmtLiters(solicitud.litros)} />
+          <Dato label="Monto estimado" valor={money(solicitud.monto_estimado)} />
+          <Dato label="Estación" valor={solicitud.estacion || '—'} />
+          <Dato label="Enviada" valor={clockTime(solicitud.created_at)} />
+          {solicitud.motivo && <Dato label="Motivo" valor={solicitud.motivo} />}
+        </div>
+      </Card>
+
+      {!online && (
+        <p className="flex items-start gap-2 rounded-xl bg-orange-50 px-3.5 py-2.5 text-sm text-accent-600">
+          <Icon name="cloudOff" size={17} className="mt-0.5 shrink-0" />
+          Sin señal no se puede ver la respuesta. Buscá cobertura y volvé a intentar.
+        </p>
+      )}
+
+      <Button variant="secondary" onClick={onRefrescar}>
+        <Icon name="refresh" size={17} />
+        Ver si ya respondieron
+      </Button>
+
+      <Button variant="danger" loading={cancelando} onClick={() => void cancelar()}>
+        Cancelar solicitud
+      </Button>
+    </>
+  )
+}
+
+// ----------------------------------------------------------------- pedir
+
+function Pedir({
+  ultima,
+  online,
+  estaciones,
+  empresaId,
+  choferId,
+  unidadId,
+  checklistId,
+  onCreada,
+  onError,
+}: {
+  ultima: SolicitudCombustible | null
+  online: boolean
+  estaciones: string[]
+  empresaId: string | null
+  choferId: string | null
+  unidadId: string | null
+  checklistId: string | null
+  onCreada: (solicitud: SolicitudCombustible) => void
+  onError: (mensaje: string) => void
+}) {
+  const [abierto, setAbierto] = useState(false)
+  const [enviando, setEnviando] = useState(false)
+  const [litros, setLitros] = useState<number | null>(null)
+  const [monto, setMonto] = useState<number | null>(null)
+  const [estacion, setEstacion] = useState('')
+  const [km, setKm] = useState<number | null>(null)
+  const [motivo, setMotivo] = useState('')
+
+  async function enviar() {
+    if (!empresaId || !choferId || !unidadId) {
+      onError('No pudimos identificar tu unidad. Abrí el turno de nuevo.')
+      return
+    }
+
+    setEnviando(true)
+    try {
+      const coords = await currentCoords(5000)
+      const creada = await crearSolicitud({
+        empresaId,
+        choferId,
+        unidadId,
+        checklistId,
+        litros,
+        montoEstimado: monto,
+        estacion: estacion.trim() || null,
+        km,
+        motivo: motivo.trim() || null,
+        lat: coords.lat,
+        lng: coords.lng,
+      })
+      onCreada(creada)
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'No se pudo enviar la solicitud')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  const listo = litros != null && litros > 0
+
+  return (
+    <>
+      {ultima?.estado === 'rechazada' && (
+        <Card className="border border-red-100 bg-red-50/60">
+          <p className="flex items-center gap-2 font-bold text-[--color-danger]">
+            <Icon name="x" size={17} />
+            Te rechazaron la última solicitud
+          </p>
+          <p className="mt-1 text-sm text-body">
+            {ultima.nota || 'No dejaron un motivo. Consultá con tu supervisor.'}
+          </p>
+        </Card>
+      )}
+
+      {ultima?.estado === 'cargada' && (
+        <Card className="border border-brand-100">
+          <p className="flex items-center gap-2 font-bold text-brand-600">
+            <Icon name="checkCircle" size={17} />
+            Tu última carga quedó registrada
+          </p>
+          <p className="mt-1 text-sm text-body-soft">
+            Si necesitás cargar de nuevo, pedí otra autorización.
+          </p>
+        </Card>
+      )}
+
+      {!abierto && (
+        <>
+          <Card className="flex flex-col items-center gap-3 py-8 text-center">
+            <span className="flex h-20 w-20 items-center justify-center rounded-full bg-brand-50 text-brand-500">
+              <Icon name="fuel" size={38} />
+            </span>
+            <p className="max-w-xs text-sm text-body-soft">
+              Antes de cargar, pedí la autorización. Cuando te la aprueben, subís la foto del
+              ticket desde esta misma pantalla.
+            </p>
+          </Card>
+
+          {!online && (
+            <p className="flex items-start gap-2 rounded-xl bg-orange-50 px-3.5 py-2.5 text-sm text-accent-600">
+              <Icon name="cloudOff" size={17} className="mt-0.5 shrink-0" />
+              Necesitás señal para pedir la carga: del otro lado tiene que haber alguien que la
+              apruebe.
+            </p>
+          )}
+
+          <Button disabled={!online} onClick={() => setAbierto(true)}>
+            Solicitar carga
+          </Button>
+        </>
+      )}
+
+      {abierto && (
+        <>
+          <SectionTitle hint="Decí cuánto necesitás. Tu supervisor puede autorizar menos.">
+            Solicitud de carga
+          </SectionTitle>
+
+          <Field label="Litros que necesitás">
+            <NumberField
+              decimales
+              icon="droplet"
+              suffix="Lts"
+              placeholder="40"
+              value={litros}
+              onChange={setLitros}
+            />
+          </Field>
+
+          <Field label="Monto aproximado (opcional)" hint="Si te manejás por dinero y no por litros.">
+            <NumberField
+              decimales
+              icon="file"
+              suffix="$"
+              placeholder="800"
+              value={monto}
+              onChange={setMonto}
+            />
+          </Field>
+
+          <Field label="Estación (opcional)">
+            <Input
+              icon="mapPin"
+              list="estaciones-solicitud"
+              placeholder="Shell - Sucursal Norte"
+              value={estacion}
+              onChange={(event) => setEstacion(event.target.value)}
+            />
+          </Field>
+          <datalist id="estaciones-solicitud">
+            {estaciones.map((e) => (
+              <option key={e} value={e} />
+            ))}
+          </datalist>
+
+          <Field label="Kilometraje actual (opcional)">
+            <NumberField
+              icon="gauge"
+              suffix="km"
+              placeholder="45230"
+              value={km}
+              onChange={setKm}
+            />
+          </Field>
+
+          <Field label="Motivo (opcional)" hint="Sirve para que te aprueben más rápido.">
+            <TextArea
+              rows={3}
+              placeholder="Voy a Querétaro y el tanque está en la reserva"
+              value={motivo}
+              onChange={(event) => setMotivo(event.target.value)}
+            />
+          </Field>
+
+          <Button
+            loading={enviando}
+            disabled={!listo || !online}
+            onClick={() => void enviar()}
+          >
+            Enviar solicitud
+          </Button>
+          <Button variant="ghost" onClick={() => setAbierto(false)}>
+            Cancelar
+          </Button>
+        </>
+      )}
+    </>
+  )
+}
+
+function Dato({ label, valor }: { label: string; valor: string }) {
   return (
     <div className="flex items-start justify-between gap-3 py-2 text-sm">
       <span className="shrink-0 text-body-soft">{label}</span>
-      <span className="truncate text-right font-medium text-ink">{value}</span>
-    </div>
-  )
-}
-
-function Footer({
-  onNext,
-  disabled,
-  hint,
-}: {
-  onNext: () => void
-  disabled?: boolean
-  hint?: string
-}) {
-  return (
-    <div className="safe-bottom sticky bottom-0 border-t border-gray-100 bg-white px-4 py-3">
-      {hint && <p className="mb-2 text-center text-xs text-body-soft">{hint}</p>}
-      <Button onClick={onNext} disabled={disabled}>
-        Siguiente
-      </Button>
+      <span className="text-right font-medium text-ink">{valor}</span>
     </div>
   )
 }

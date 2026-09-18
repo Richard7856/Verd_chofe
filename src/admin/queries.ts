@@ -12,6 +12,7 @@ import type {
   IncidenciaChofer,
   OrigenFoto,
   RevisionFoto,
+  SolicitudCombustible,
   TipoAviso,
   Unidad,
 } from '@/lib/database.types'
@@ -503,6 +504,11 @@ export interface MovimientoDia {
   etiqueta: string
   monto: number
   litros: number | null
+  /**
+   * Litros que se autorizaron antes de cargar. Null en las cargas sin
+   * solicitud: las de antes del flujo de aprobación.
+   */
+  litros_autorizados: number | null
   estado_revision: EstadoRevision
   ticket_url: string | null
   ticket_ruta: string | null
@@ -510,12 +516,25 @@ export interface MovimientoDia {
   checklist_id: string | null
 }
 
+/**
+ * PostgREST devuelve la solicitud embebida como objeto o como arreglo de uno,
+ * según cómo lea la relación. Acá se aplana para no tener que adivinarlo en
+ * cada lectura.
+ */
+function litrosAutorizados(embebido: unknown): number | null {
+  const fila = Array.isArray(embebido) ? embebido[0] : embebido
+  const valor = (fila as { litros_autorizados?: number | null } | null)?.litros_autorizados
+  return valor == null ? null : Number(valor)
+}
+
 /** Cargas y gastos de un día, en una sola lista y con su ticket firmado. */
 export async function movimientosDelDia(fecha: string): Promise<MovimientoDia[]> {
   const [cargas, gastos] = await Promise.all([
     supabase
       .from('cargas_combustible')
-      .select('id, chofer_id, checklist_id, estacion, litros, total, ticket_ruta, estado_revision')
+      .select(
+        'id, chofer_id, checklist_id, estacion, litros, total, ticket_ruta, estado_revision, solicitud:solicitudes_combustible(litros_autorizados)',
+      )
       .eq('fecha', fecha),
     supabase
       .from('gastos_chofer')
@@ -530,6 +549,7 @@ export async function movimientosDelDia(fecha: string): Promise<MovimientoDia[]>
       etiqueta: (c.estacion as string) || 'Combustible',
       monto: Number(c.total),
       litros: Number(c.litros),
+      litros_autorizados: litrosAutorizados(c.solicitud),
       estado_revision: c.estado_revision as EstadoRevision,
       ticket_ruta: (c.ticket_ruta as string) ?? null,
       ticket_url: null,
@@ -542,6 +562,7 @@ export async function movimientosDelDia(fecha: string): Promise<MovimientoDia[]>
       etiqueta: (g.descripcion as string) || (g.tipo as string),
       monto: Number(g.monto),
       litros: null,
+      litros_autorizados: null,
       estado_revision: g.estado_revision as EstadoRevision,
       ticket_ruta: (g.ticket_ruta as string) ?? null,
       ticket_url: null,
@@ -1008,4 +1029,83 @@ export async function restablecerPassword(choferId: string, password: string) {
     throw new Error(detalle?.error ?? error.message)
   }
   if (data?.error) throw new Error(data.error)
+}
+
+// ------------------------------------------- solicitudes de combustible
+
+export interface SolicitudAdmin extends SolicitudCombustible {
+  chofer: { nombre: string } | null
+  unidad: { placa: string; alias: string | null; rendimiento_km_litro: number | null } | null
+}
+
+const SELECT_SOLICITUD =
+  '*, chofer:choferes(nombre), unidad:unidades(placa, alias, rendimiento_km_litro)'
+
+/**
+ * La cola de autorizaciones. Las pendientes primero y sin recortar: del otro
+ * lado hay un chofer parado en la gasolinera esperando el sí.
+ */
+export async function solicitudesPendientes(): Promise<SolicitudAdmin[]> {
+  const { data, error } = await supabase
+    .from('solicitudes_combustible')
+    .select(SELECT_SOLICITUD)
+    .eq('estado', 'pendiente')
+    .order('created_at', { ascending: true })
+
+  if (error) throw new Error(error.message)
+  return (data ?? []) as unknown as SolicitudAdmin[]
+}
+
+/** Lo ya resuelto, para poder mirar atrás sin abrir otra pantalla. */
+export async function historialSolicitudes(desde: string, hasta: string): Promise<SolicitudAdmin[]> {
+  const { data, error } = await supabase
+    .from('solicitudes_combustible')
+    .select(SELECT_SOLICITUD)
+    .neq('estado', 'pendiente')
+    .gte('fecha', desde)
+    .lte('fecha', hasta)
+    .order('created_at', { ascending: false })
+    .limit(200)
+
+  if (error) throw new Error(error.message)
+  return (data ?? []) as unknown as SolicitudAdmin[]
+}
+
+export async function contarSolicitudesPendientes(): Promise<number> {
+  const { count } = await supabase
+    .from('solicitudes_combustible')
+    .select('id', { count: 'exact', head: true })
+    .eq('estado', 'pendiente')
+  return count ?? 0
+}
+
+/**
+ * Autoriza o rechaza. Los litros autorizados pueden ser menos de los pedidos:
+ * es contra ese número —no contra lo que pidió el chofer— que después se mide
+ * el ticket.
+ *
+ * El aviso al chofer lo dispara un trigger en la base, no esta función: si se
+ * cerrara el navegador justo acá, el chofer se quedaría esperando una
+ * respuesta que ya existe.
+ */
+export async function resolverSolicitud(
+  id: string,
+  estado: 'aprobada' | 'rechazada' | 'cancelada',
+  datos: { litros_autorizados?: number | null; monto_autorizado?: number | null; nota?: string | null } = {},
+) {
+  const { data: sesion } = await supabase.auth.getUser()
+  const { error } = await supabase
+    .from('solicitudes_combustible')
+    .update({
+      estado,
+      litros_autorizados: estado === 'aprobada' ? (datos.litros_autorizados ?? null) : null,
+      monto_autorizado: estado === 'aprobada' ? (datos.monto_autorizado ?? null) : null,
+      nota: datos.nota ?? null,
+      resuelta_por: sesion.user?.id ?? null,
+      resuelta_el: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .eq('estado', 'pendiente')
+
+  if (error) throw new Error(error.message)
 }

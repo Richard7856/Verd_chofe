@@ -1,14 +1,19 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { Icon, type IconName } from '@/components/Icons'
 import { cx } from '@/components/ui'
 import { useAuth } from '@/context/AuthContext'
+import { contarSolicitudesPendientes } from './queries'
+
+/** Cada cuánto se revisa si hay choferes esperando autorización. */
+const REFRESCO_PENDIENTES_MS = 60_000
 
 const SECCIONES: Array<{ to: string; label: string; icon: IconName }> = [
   { to: '/admin', label: 'Resumen', icon: 'home' },
   { to: '/admin/turnos', label: 'Turnos', icon: 'clipboard' },
   { to: '/admin/reporte', label: 'Reporte por chofer', icon: 'gauge' },
   { to: '/admin/kilometros', label: 'Revisión del día', icon: 'mapPin' },
+  { to: '/admin/solicitudes', label: 'Solicitudes de carga', icon: 'fuel' },
   { to: '/admin/choferes', label: 'Choferes', icon: 'user' },
   { to: '/admin/unidades', label: 'Unidades', icon: 'car' },
   { to: '/admin/combustible', label: 'Combustible', icon: 'fuel' },
@@ -20,7 +25,18 @@ const SECCIONES: Array<{ to: string; label: string; icon: IconName }> = [
 export function AdminShell({ children }: { children: ReactNode }) {
   const { profile, signOut } = useAuth()
   const [menuAbierto, setMenuAbierto] = useState(false)
+  const [porAutorizar, setPorAutorizar] = useState(0)
   const location = useLocation()
+
+  // Una solicitud sin contestar es un camión detenido en la gasolinera, así
+  // que el número va en el menú y no adentro de una pantalla que hay que
+  // acordarse de abrir.
+  useEffect(() => {
+    const leer = () => void contarSolicitudesPendientes().then(setPorAutorizar).catch(() => {})
+    leer()
+    const id = setInterval(leer, REFRESCO_PENDIENTES_MS)
+    return () => clearInterval(id)
+  }, [location.pathname])
 
   const menu = (
     <nav className="flex flex-col gap-0.5">
@@ -40,7 +56,12 @@ export function AdminShell({ children }: { children: ReactNode }) {
           }
         >
           <Icon name={s.icon} size={18} />
-          {s.label}
+          <span className="flex-1">{s.label}</span>
+          {s.to === '/admin/solicitudes' && porAutorizar > 0 && (
+            <span className="rounded-full bg-[--color-danger] px-2 py-0.5 text-xs font-bold text-white">
+              {porAutorizar}
+            </span>
+          )}
         </NavLink>
       ))}
     </nav>

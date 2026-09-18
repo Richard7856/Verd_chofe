@@ -53,6 +53,15 @@ function kmDelTurno(t: Turno): number | null {
 const etiquetaRuta = (r: RutaTripDrive) => r.vehicle?.color ?? r.name
 
 /**
+ * Cargó más de lo que se le autorizó. El margen es por el redondeo de la
+ * bomba: nadie carga los 40.00 exactos.
+ */
+function excedeLoAutorizado(m: MovimientoDia) {
+  if (m.litros_autorizados == null || m.litros == null) return false
+  return m.litros > m.litros_autorizados + 1
+}
+
+/**
  * La jornada completa de un día: kilómetros, ruta de TripDrive, consumo y el
  * gasto por aprobar. Todo junto porque son la misma decisión — si los km
  * cuadran con la ruta y el combustible cuadra con los km, el gasto se
@@ -393,9 +402,19 @@ export function Kilometros() {
                                 <span className="block truncate text-[12px] text-ink">
                                   {money(m.monto)}
                                   {m.litros ? ` · ${liters(m.litros)}` : ''}
+                                  {excedeLoAutorizado(m) && (
+                                    <span
+                                      className="ml-1 font-semibold text-[--color-danger]"
+                                      title={`Se autorizaron ${liters(m.litros_autorizados)}`}
+                                    >
+                                      ▲
+                                    </span>
+                                  )}
                                 </span>
                                 <span className="block truncate text-[11px] text-body-soft">
                                   {m.etiqueta}
+                                  {m.litros_autorizados != null &&
+                                    ` · autorizado ${liters(m.litros_autorizados)}`}
                                 </span>
                               </span>
 

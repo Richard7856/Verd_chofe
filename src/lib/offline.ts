@@ -60,6 +60,12 @@ export interface FuelDraft {
   vehicleId: string | null
   /** turno al que se carga el gasto, si hay uno abierto */
   checklistId: string | null
+  /**
+   * Solicitud aprobada que habilita esta carga. Sin ella el servidor rechaza
+   * el envío: desde el flujo de aprobación, cargar sin permiso no es un
+   * registro tardío sino una carga no autorizada.
+   */
+  solicitudId: string | null
   loadedOn: string
   stationName: string | null
   liters: number | null
@@ -246,6 +252,11 @@ export async function enqueue(clientUuid: string, kind: OutboxKind) {
 
 export async function getOutbox(): Promise<OutboxEntry[]> {
   return (await db()).getAll('outbox')
+}
+
+/** ¿Este borrador ya se mandó a la cola? Sirve para no ofrecer enviarlo dos veces. */
+export async function estaEncolado(clientUuid: string, kind: OutboxKind) {
+  return Boolean(await (await db()).get('outbox', outboxId(clientUuid, kind)))
 }
 
 /**
