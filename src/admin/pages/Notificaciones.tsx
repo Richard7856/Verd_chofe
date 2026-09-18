@@ -324,12 +324,15 @@ export function Notificaciones() {
                 </>,
                 <>Pegá el token acá y dale <b>Guardar</b>.</>,
                 <>
-                  Creá el grupo donde quieras recibir los avisos y agregá al bot. Si preferís que
-                  te lleguen a vos solo, escribile al bot directamente.
+                  Creá el grupo donde quieras recibir los avisos y agregá al bot. Conviene un
+                  grupo aunque al principio esté una sola persona: sumar a la segunda después no
+                  obliga a tocar nada.
                 </>,
                 <>
-                  Mandá cualquier mensaje en ese chat y tocá <b>Detectar chat</b>: aparece en la
-                  lista y se llena solo.
+                  En ese chat mandá <code>/start@tubot</code> —con el nombre del bot— y tocá{' '}
+                  <b>Detectar chat</b>. Tiene que ser un comando que lo mencione: en los grupos,
+                  Telegram no le deja ver los mensajes comunes, así que un “hola” suelto no lo
+                  despierta. En un chat privado con el bot, cualquier mensaje sirve.
                 </>,
                 <>
                   <b>Guardar</b> otra vez y <b>Enviar prueba</b> para confirmar.
@@ -353,6 +356,11 @@ export function Notificaciones() {
               <p className="mt-2">
                 El token queda cifrado y no se puede volver a leer desde acá. Si se pierde, se
                 pide uno nuevo a BotFather.
+              </p>
+              <p className="mt-2">
+                Si un grupo chico crece y Telegram lo convierte en supergrupo, le cambia el
+                identificador y los avisos dejan de llegar sin decir nada. Se arregla volviendo a
+                tocar <b>Detectar chat</b> y guardando.
               </p>
             </div>
           </Panel>
