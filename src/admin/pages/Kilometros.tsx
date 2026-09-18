@@ -6,6 +6,7 @@ import { CeldaFoto } from '../CeldaFoto'
 import { PanelTanque } from '../PanelTanque'
 import { km, liters, money, shortDate, todayISO } from '@/lib/format'
 import {
+  KM_MAXIMO_CREIBLE,
   desvincularRuta,
   movimientosDelDia,
   revisarMovimiento,
@@ -17,9 +18,6 @@ import {
   type RutaTripDrive,
   type VinculoRuta,
 } from '../queries'
-
-/** Un turno con más de esto (o negativo) es un dedazo en el odómetro. */
-const KM_MAXIMO_CREIBLE = 1500
 
 /** Diferencia contra el plan a partir de la cual hay que mirar el turno. */
 const TOLERANCIA_KM = 20

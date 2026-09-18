@@ -1109,3 +1109,201 @@ export async function resolverSolicitud(
 
   if (error) throw new Error(error.message)
 }
+
+// ------------------------------------------------- resumen por rango
+
+/**
+ * Un recorrido mayor a esto (o negativo) es un dedazo en el odómetro, no un
+ * viaje. Dejarlo entrar reventaría cualquier promedio: un 4 de más en el
+ * kilometraje final vale más que todo un mes de ruta real.
+ */
+export const KM_MAXIMO_CREIBLE = 1500
+
+export interface FilaResumen {
+  clave: string
+  nombre: string
+  turnos: number
+  km: number
+  litros: number
+  combustible: number
+  extras: number
+  total: number
+  /** km ÷ litros del periodo. Null cuando no cargó nada: no es cero, es que no se sabe. */
+  rendimiento: number | null
+}
+
+export interface ResumenRango {
+  turnos: number
+  turnosAbiertos: number
+  cerradosPorSistema: number
+  choferesConTurno: number
+  km: number
+  litros: number
+  combustible: number
+  extras: number
+  gastoTotal: number
+  rendimiento: number | null
+  costoPorKm: number | null
+  kmDescartados: number
+  porChofer: FilaResumen[]
+  porUnidad: FilaResumen[]
+}
+
+function filaVacia(clave: string, nombre: string): FilaResumen {
+  return {
+    clave,
+    nombre,
+    turnos: 0,
+    km: 0,
+    litros: 0,
+    combustible: 0,
+    extras: 0,
+    total: 0,
+    rendimiento: null,
+  }
+}
+
+/**
+ * Todo lo del periodo en una sola pasada: turnos, kilómetros, combustible y
+ * gastos extra, con el desglose por chofer y por unidad.
+ *
+ * Dos decisiones que cambian los números y conviene tener presentes:
+ *
+ *   · Los movimientos rechazados no suman. El admin ya dijo que ese gasto no
+ *     va; dejarlo en el total obligaría a restarlo a mano cada vez.
+ *   · Los recorridos imposibles se descartan y se cuentan aparte, para que se
+ *     vea que faltan en vez de que desaparezcan en silencio.
+ */
+export async function resumenGeneral(desde: string, hasta: string): Promise<ResumenRango> {
+  const [turnos, cargas, gastos] = await Promise.all([
+    supabase
+      .from('checklists_unidad')
+      .select(
+        'id, fecha, estado, cierre_automatico, km_inicial, km_final, chofer_id, unidad_id, chofer:choferes(nombre), unidad:unidades(placa, alias)',
+      )
+      .gte('fecha', desde)
+      .lte('fecha', hasta)
+      .limit(2000),
+    supabase
+      .from('cargas_combustible')
+      .select('chofer_id, unidad_id, litros, total, estado_revision')
+      .gte('fecha', desde)
+      .lte('fecha', hasta)
+      .limit(2000),
+    supabase
+      .from('gastos_chofer')
+      .select('chofer_id, unidad_id, monto, estado_revision')
+      .gte('fecha', desde)
+      .lte('fecha', hasta)
+      .limit(2000),
+  ])
+
+  const porChofer = new Map<string, FilaResumen>()
+  const porUnidad = new Map<string, FilaResumen>()
+
+  const nombreChofer = new Map<string, string>()
+  const nombreUnidad = new Map<string, string>()
+
+  const fila = (mapa: Map<string, FilaResumen>, clave: string | null, nombre: string) => {
+    const id = clave ?? 'sin-asignar'
+    let f = mapa.get(id)
+    if (!f) {
+      f = filaVacia(id, nombre)
+      mapa.set(id, f)
+    }
+    // El nombre puede llegar primero por el turno y después por la carga; gana
+    // el que no sea el genérico.
+    if (f.nombre === '—' && nombre !== '—') f.nombre = nombre
+    return f
+  }
+
+  let km = 0
+  let kmDescartados = 0
+  let turnosAbiertos = 0
+  let cerradosPorSistema = 0
+  const choferesConTurno = new Set<string>()
+
+  for (const t of (turnos.data ?? []) as unknown as Array<Record<string, any>>) {
+    const nChofer = t.chofer?.nombre ?? '—'
+    const nUnidad = t.unidad?.placa ?? '—'
+    nombreChofer.set(t.chofer_id, nChofer)
+    nombreUnidad.set(t.unidad_id, nUnidad)
+
+    const fc = fila(porChofer, t.chofer_id, nChofer)
+    const fu = fila(porUnidad, t.unidad_id, nUnidad)
+    fc.turnos++
+    fu.turnos++
+    choferesConTurno.add(t.chofer_id)
+
+    if (t.estado === 'en_progreso') turnosAbiertos++
+    if (t.cierre_automatico) cerradosPorSistema++
+
+    if (t.km_inicial != null && t.km_final != null) {
+      const recorrido = Number(t.km_final) - Number(t.km_inicial)
+      if (recorrido >= 0 && recorrido <= KM_MAXIMO_CREIBLE) {
+        km += recorrido
+        fc.km += recorrido
+        fu.km += recorrido
+      } else {
+        kmDescartados++
+      }
+    }
+  }
+
+  let litros = 0
+  let combustible = 0
+
+  for (const c of (cargas.data ?? []) as unknown as Array<Record<string, any>>) {
+    if (c.estado_revision === 'rechazado') continue
+    const l = Number(c.litros) || 0
+    const monto = Number(c.total) || 0
+    litros += l
+    combustible += monto
+
+    const fc = fila(porChofer, c.chofer_id, nombreChofer.get(c.chofer_id) ?? '—')
+    const fu = fila(porUnidad, c.unidad_id, nombreUnidad.get(c.unidad_id) ?? '—')
+    fc.litros += l
+    fc.combustible += monto
+    fu.litros += l
+    fu.combustible += monto
+  }
+
+  let extras = 0
+
+  for (const g of (gastos.data ?? []) as unknown as Array<Record<string, any>>) {
+    if (g.estado_revision === 'rechazado') continue
+    const monto = Number(g.monto) || 0
+    extras += monto
+
+    fila(porChofer, g.chofer_id, nombreChofer.get(g.chofer_id) ?? '—').extras += monto
+    fila(porUnidad, g.unidad_id, nombreUnidad.get(g.unidad_id) ?? '—').extras += monto
+  }
+
+  const cerrar = (mapa: Map<string, FilaResumen>) =>
+    [...mapa.values()]
+      .map((f) => ({
+        ...f,
+        total: f.combustible + f.extras,
+        rendimiento: f.litros > 0 && f.km > 0 ? f.km / f.litros : null,
+      }))
+      .sort((a, b) => b.total - a.total || b.km - a.km)
+
+  const gastoTotal = combustible + extras
+
+  return {
+    turnos: (turnos.data ?? []).length,
+    turnosAbiertos,
+    cerradosPorSistema,
+    choferesConTurno: choferesConTurno.size,
+    km,
+    litros,
+    combustible,
+    extras,
+    gastoTotal,
+    rendimiento: litros > 0 && km > 0 ? km / litros : null,
+    costoPorKm: km > 0 ? gastoTotal / km : null,
+    kmDescartados,
+    porChofer: cerrar(porChofer),
+    porUnidad: cerrar(porUnidad),
+  }
+}
