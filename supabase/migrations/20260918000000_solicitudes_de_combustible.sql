@@ -237,3 +237,7 @@ comment on table public.solicitudes_combustible is
 -- ejecuta como dueño de la tabla, no por este permiso.
 revoke all on function public.marcar_solicitud_cargada() from public, anon, authenticated;
 revoke all on function public.avisar_resolucion_solicitud() from public, anon, authenticated;
+
+-- Misma razón: sin esto, `anon` podía llamar la función de cancelación.
+revoke all on function public.cancelar_solicitud_combustible(uuid) from public, anon;
+grant execute on function public.cancelar_solicitud_combustible(uuid) to authenticated;

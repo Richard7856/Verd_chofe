@@ -321,3 +321,21 @@ grant execute on function public.telegram_respuesta(bigint) to authenticated;
 
 comment on table public.notificaciones_telegram is
   'A qué chat de Telegram avisar. El token del bot NO está acá: vive cifrado en Vault.';
+
+-- `create function` concede EXECUTE a PUBLIC por omisión, así que el rol
+-- `anon` —el de quien no inició sesión— quedaba pudiendo llamar estas
+-- funciones. Todas verifican `es_admin()` adentro y le responderían con una
+-- excepción, pero la verificación no debería ser lo único que separa a un
+-- anónimo de la configuración de avisos: si mañana alguien toca ese chequeo,
+-- la puerta ya estaría abierta.
+revoke all on function public.telegram_guardar(uuid, text, text, boolean) from public, anon;
+revoke all on function public.telegram_estado(uuid) from public, anon;
+revoke all on function public.telegram_probar(uuid) from public, anon;
+revoke all on function public.telegram_detectar_chats(uuid) from public, anon;
+revoke all on function public.telegram_respuesta(bigint) from public, anon;
+
+grant execute on function public.telegram_guardar(uuid, text, text, boolean) to authenticated;
+grant execute on function public.telegram_estado(uuid) to authenticated;
+grant execute on function public.telegram_probar(uuid) to authenticated;
+grant execute on function public.telegram_detectar_chats(uuid) to authenticated;
+grant execute on function public.telegram_respuesta(bigint) to authenticated;
