@@ -8,6 +8,7 @@ import {
   esperarRespuestaTelegram,
   estadoTelegram,
   guardarTelegram,
+  infoBotTelegram,
   listarEmpresas,
   probarTelegram,
   type EstadoTelegram,
@@ -76,6 +77,7 @@ export function Notificaciones() {
   const [probando, setProbando] = useState(false)
   const [detectando, setDetectando] = useState(false)
   const [detectados, setDetectados] = useState<ChatDetectado[]>([])
+  const [bot, setBot] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [aviso, setAviso] = useState<string | null>(null)
 
@@ -92,6 +94,7 @@ export function Notificaciones() {
     setError(null)
     setAviso(null)
     setDetectados([])
+    setBot(null)
     setToken('')
     estadoTelegram(empresaId)
       .then((e) => {
@@ -102,6 +105,28 @@ export function Notificaciones() {
       .catch((err) => setError(err instanceof Error ? err.message : 'No se pudo leer la configuración'))
       .finally(() => setCargando(false))
   }, [empresaId])
+
+  // El @usuario del bot: sin él no se lo puede agregar a un grupo ni
+  // mencionarlo, que son los dos pasos donde todo el mundo se traba.
+  useEffect(() => {
+    if (!estado?.con_token || !empresaId) return
+    let vigente = true
+    void (async () => {
+      try {
+        const id = await infoBotTelegram(empresaId)
+        if (id == null) return
+        const r = await esperarRespuestaTelegram(id)
+        if (!vigente || r.status_code !== 200) return
+        const json = JSON.parse(r.contenido ?? '{}') as { result?: { username?: string } }
+        setBot(json.result?.username ?? null)
+      } catch {
+        // Saber el nombre del bot es una ayuda, no un requisito.
+      }
+    })()
+    return () => {
+      vigente = false
+    }
+  }, [estado?.con_token, empresaId])
 
   async function guardar() {
     setGuardando(true)
@@ -138,7 +163,7 @@ export function Notificaciones() {
       if (r.status_code === 200) {
         setAviso('Mensaje enviado. Revisá el chat de Telegram.')
       } else {
-        setError(explicar(r.status_code, r.contenido, r.error))
+        setError(explicar(r.status_code, r.contenido, r.error, bot))
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo enviar la prueba')
@@ -158,15 +183,19 @@ export function Notificaciones() {
 
       const r = await esperarRespuestaTelegram(id)
       if (r.status_code !== 200) {
-        setError(explicar(r.status_code, r.contenido, r.error))
+        setError(explicar(r.status_code, r.contenido, r.error, bot))
         return
       }
 
       const chats = chatsDeLaRespuesta(r.contenido)
       setDetectados(chats)
       if (chats.length === 0) {
+        // Casi siempre es una de dos: el bot no está en el grupo, o está pero
+        // le mandaron un mensaje común, que el modo privacidad no le deja ver.
         setAviso(
-          'Telegram no tiene mensajes recientes para este bot. Mandale un mensaje al bot (o al grupo donde está) y probá de nuevo.',
+          bot
+            ? `Telegram no tiene nada de este bot todavía. Revisá que @${bot} sea miembro del grupo y mandá ahí "/start@${bot}" — en los grupos no ve los mensajes comunes, sólo los que lo mencionan.`
+            : 'Telegram no tiene nada de este bot todavía. Revisá que el bot sea miembro del grupo y mandá ahí un comando que lo mencione: en los grupos no ve los mensajes comunes.',
         )
       }
     } catch (err) {
@@ -218,7 +247,7 @@ export function Notificaciones() {
             <div className="space-y-4 p-4">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge tone={estado?.con_token ? 'success' : 'neutral'}>
-                  {estado?.con_token ? 'Token guardado' : 'Sin token'}
+                  {estado?.con_token ? (bot ? `@${bot}` : 'Token guardado') : 'Sin token'}
                 </Badge>
                 <Badge tone={estado?.chat_id ? 'success' : 'neutral'}>
                   {estado?.chat_id ? `Chat ${estado.chat_id}` : 'Sin chat'}
@@ -254,16 +283,26 @@ export function Notificaciones() {
                 />
               </Field>
 
-              <Button
-                block={false}
-                variant="secondary"
-                loading={detectando}
-                disabled={!estado?.con_token}
-                onClick={() => void detectar()}
-              >
-                <Icon name="refresh" size={16} />
-                Detectar chat
-              </Button>
+              <div className="space-y-1.5">
+                <Button
+                  block={false}
+                  variant="secondary"
+                  loading={detectando}
+                  disabled={!estado?.con_token}
+                  onClick={() => void detectar()}
+                >
+                  <Icon name="refresh" size={16} />
+                  Detectar chat
+                </Button>
+                {bot && (
+                  <p className="text-xs text-body-soft">
+                    Agregá a <b className="font-mono">@{bot}</b> al grupo y mandá ahí{' '}
+                    <code className="rounded bg-gray-100 px-1 py-0.5">/start@{bot}</code> antes de
+                    detectar. No alcanza con escribir “hola”: en los grupos el bot sólo ve los
+                    mensajes que lo mencionan.
+                  </p>
+                )}
+              </div>
 
               {detectados.length > 0 && (
                 <div className="space-y-1.5 rounded-xl border border-gray-200 p-3">
@@ -371,7 +410,12 @@ export function Notificaciones() {
 }
 
 /** Traduce la respuesta de Telegram a algo accionable. */
-function explicar(status: number | null, contenido: string | null, error: string | null): string {
+function explicar(
+  status: number | null,
+  contenido: string | null,
+  error: string | null,
+  bot: string | null,
+): string {
   if (error) return `No se pudo contactar a Telegram: ${error}`
 
   let descripcion = ''
@@ -383,7 +427,9 @@ function explicar(status: number | null, contenido: string | null, error: string
 
   if (status === 401) return 'El token del bot no es válido. Pedí uno nuevo a @BotFather.'
   if (status === 400 && /chat not found/i.test(descripcion))
-    return 'Ese chat no existe o el bot no está adentro. Agregá el bot al grupo y volvé a detectar.'
+    return bot
+      ? `Telegram no encuentra ese chat. Casi siempre es que @${bot} no es miembro del grupo: un identificador copiado de la barra del navegador no sirve si el bot no está adentro. Agregalo y usá "Detectar chat".`
+      : 'Telegram no encuentra ese chat. Casi siempre es que el bot no es miembro del grupo: agregalo y usá "Detectar chat" en vez de copiar el identificador a mano.'
   if (status === 403)
     return 'El bot no puede escribir en ese chat. Agregalo al grupo (o escribile primero desde tu cuenta).'
 

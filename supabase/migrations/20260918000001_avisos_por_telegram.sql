@@ -339,3 +339,38 @@ grant execute on function public.telegram_estado(uuid) to authenticated;
 grant execute on function public.telegram_probar(uuid) to authenticated;
 grant execute on function public.telegram_detectar_chats(uuid) to authenticated;
 grant execute on function public.telegram_respuesta(bigint) to authenticated;
+
+-- Quién es el bot.
+--
+-- Al configurarlo hay que agregar el bot al grupo y mandarle un comando que
+-- lo mencione —el modo privacidad le impide ver los mensajes comunes—, y para
+-- las dos cosas hace falta su @usuario. Nadie se lo acuerda: lo eligió una vez
+-- en BotFather y después trabaja con el token, que no lo dice.
+--
+-- Sin esto, "Detectar chat" en vacío sólo puede decir "no hay mensajes", que
+-- es cierto y no sirve para nada. Con el @usuario a la vista, la pantalla
+-- puede decir exactamente qué escribir y dónde.
+create or replace function public.telegram_bot_info(p_empresa uuid)
+returns bigint
+language plpgsql security definer set search_path = public, net
+as $$
+declare
+  v_token text;
+  v_id    bigint;
+begin
+  perform public.telegram_admin_check(p_empresa);
+
+  v_token := public.telegram_token(p_empresa);
+  if v_token is null then return null; end if;
+
+  select net.http_get(
+    url := 'https://api.telegram.org/bot' || v_token || '/getMe',
+    timeout_milliseconds := 8000
+  ) into v_id;
+
+  return v_id;
+end;
+$$;
+
+revoke all on function public.telegram_bot_info(uuid) from public, anon;
+grant execute on function public.telegram_bot_info(uuid) to authenticated;

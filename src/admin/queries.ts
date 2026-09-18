@@ -1357,6 +1357,16 @@ export async function probarTelegram(empresaId: string): Promise<number | null> 
   return (data as unknown as number) ?? null
 }
 
+/** Pide a Telegram la identidad del bot: hace falta su @usuario para agregarlo. */
+export async function infoBotTelegram(empresaId: string): Promise<number | null> {
+  const { data, error } = await supabase.rpc('telegram_bot_info' as never, {
+    p_empresa: empresaId,
+  } as never)
+
+  if (error) throw new Error(error.message)
+  return (data as unknown as number) ?? null
+}
+
 export async function detectarChatsTelegram(empresaId: string): Promise<number | null> {
   const { data, error } = await supabase.rpc('telegram_detectar_chats' as never, {
     p_empresa: empresaId,
